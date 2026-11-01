@@ -1,0 +1,15 @@
+[workspace]
+members = ["crates/snapshotstore"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+authors = ["AnujDakhara7888"]
+repository = "https://github.com/AnujDakhara7888/SnapshotStore"
+
+[workspace.dependencies]
+arrow = { version = "=60.1.0", default-features = false }
+parquet = { version = "=60.1.0", default-features = false, features = ["arrow", "zstd"] }
+tempfile = "=3.27.0"
