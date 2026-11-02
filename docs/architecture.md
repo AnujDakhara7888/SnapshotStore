@@ -47,8 +47,17 @@ batches.
 The checked-in [format contract](format-v1.md) and JSON fixtures are decoded,
 re-encoded, and validated by the test suite.
 
+## Local backend
+
+The local adapter uses an advisory interprocess lock, same-directory staging,
+file and directory `fsync`, atomic hard-link creation, and atomic rename
+replacement. Its [durability contract and platform limits](local-durability.md)
+are documented separately. A deterministic subprocess test verifies that two
+writers sharing one stale token cannot both publish.
+
 ## Current implementation boundary
 
-The storage and metadata contracts are implemented. Concrete local and S3
-adapters, table creation, append publication, replay reconciliation, snapshots,
-and the command-line interface are separate layers and are not yet available.
+The storage and metadata contracts and local filesystem adapter are
+implemented. The S3 adapter, table creation, append publication, replay
+reconciliation, snapshots, and command-line interface are separate layers and
+are not yet available.

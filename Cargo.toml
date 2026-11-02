@@ -13,9 +13,11 @@ repository = "https://github.com/AnujDakhara7888/SnapshotStore"
 async-trait = "=0.1.92"
 arrow = { version = "=60.1.0", default-features = false }
 bytes = "=1.12.1"
+fs4 = "=1.1.0"
 parquet = { version = "=60.1.0", default-features = false, features = ["arrow", "zstd"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.154"
+sha2 = "=0.11.1"
 tempfile = "=3.27.0"
 thiserror = "=2.0.21"
 tokio = { version = "=1.54.1", features = ["macros", "rt"] }

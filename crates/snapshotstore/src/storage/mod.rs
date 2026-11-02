@@ -4,6 +4,8 @@
 //! Listing is intentionally absent: committed state is discovered only through
 //! `HEAD` and immutable manifests.
 
+pub mod local;
+
 use std::fmt;
 use std::str::FromStr;
 

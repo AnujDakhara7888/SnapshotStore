@@ -18,10 +18,12 @@ publication pointer, and a committed batch registry.
 
 The repository contains the pinned Rust, Apache Arrow, and Apache Parquet
 foundation, the version-one persistent metadata model, and the minimal storage
-contract needed for conditional publication. Executable format fixtures cover
-an empty table and its first append. Tests validate their JSON round trips,
-cross-object identities, row counts, file sets, batch registry, relative keys,
-and typed conditional-write behavior.
+contract needed for conditional publication. The local filesystem adapter adds
+interprocess locking, durable create-if-absent, and atomic token-matched
+replacement. Executable format fixtures cover an empty table and its first
+append. Tests validate their JSON round trips, cross-object identities, row
+counts, file sets, batch registry, relative keys, and typed conditional-write
+behavior.
 
 A separate integration test writes a nullable Arrow `RecordBatch` to a
 Zstandard-compressed Parquet file and reads it back without changing its schema,
@@ -50,7 +52,9 @@ committed batch registry.
 
 See the [architecture](docs/architecture.md), [format v1
 contract](docs/format-v1.md), and [conditional-publication decision
-record](docs/decisions/0001-conditional-publication.md).
+record](docs/decisions/0001-conditional-publication.md). Local `fsync`, locking,
+and platform assumptions are detailed in the [local durability
+contract](docs/local-durability.md).
 
 ## Build and test
 
@@ -79,8 +83,10 @@ SnapshotStore is deliberately append-only. Row updates and deletes, schema
 evolution, cross-table transactions, compaction, vacuum, replication,
 distributed consensus, and a network service are outside the initial scope.
 
-The current code defines and tests storage and metadata contracts but has no
-concrete durable backend. It does not yet provide table creation, transactional
-append execution, replay safety, concurrent-writer guarantees, historical
-reads, a command-line interface, or validated S3 behavior. Those claims will be
-added here only with executable evidence.
+The current code defines and tests storage and metadata contracts plus a local
+durable backend. It does not yet provide table creation, transactional append
+execution, replay safety, end-to-end concurrent-writer guarantees, historical
+reads, a command-line interface, or validated S3 behavior. The local evidence
+covers conditional replacement across two processes, not the complete append
+protocol or physical power-loss behavior. Further claims will be added only
+with executable evidence.
