@@ -16,15 +16,20 @@ publication pointer, and a committed batch registry.
 
 ## Current implementation
 
-The repository currently contains the pinned Rust, Apache Arrow, and Apache
-Parquet foundation. A verified integration test writes a nullable Arrow
-`RecordBatch` to a Zstandard-compressed Parquet file and reads it back without
-changing its schema, values, nulls, or row order.
+The repository contains the pinned Rust, Apache Arrow, and Apache Parquet
+foundation, the version-one persistent metadata model, and the minimal storage
+contract needed for conditional publication. Executable format fixtures cover
+an empty table and its first append. Tests validate their JSON round trips,
+cross-object identities, row counts, file sets, batch registry, relative keys,
+and typed conditional-write behavior.
+
+A separate integration test writes a nullable Arrow `RecordBatch` to a
+Zstandard-compressed Parquet file and reads it back without changing its schema,
+values, nulls, or row order.
 
 Transactional metadata and table APIs are under active development. The
 following behavior is design intent until its implementation and tests land:
 
-- fixed-schema table creation and version-zero snapshots;
 - immutable Parquet data files and complete versioned manifests;
 - optimistic compare-and-swap publication for local storage and AWS S3;
 - pinned current and historical snapshots;
@@ -42,6 +47,10 @@ not refresh it during a scan.
 This design intentionally favors a small, auditable correctness model over
 metadata scalability. Each manifest carries the complete active file list and
 committed batch registry.
+
+See the [architecture](docs/architecture.md), [format v1
+contract](docs/format-v1.md), and [conditional-publication decision
+record](docs/decisions/0001-conditional-publication.md).
 
 ## Build and test
 
@@ -70,7 +79,8 @@ SnapshotStore is deliberately append-only. Row updates and deletes, schema
 evolution, cross-table transactions, compaction, vacuum, replication,
 distributed consensus, and a network service are outside the initial scope.
 
-The current code proves only Arrow/Parquet interoperability. It does not yet
-provide transactional storage, replay safety, concurrent-writer guarantees,
-historical reads, a command-line interface, or validated S3 behavior. Those
-claims will be added here only with executable evidence.
+The current code defines and tests storage and metadata contracts but has no
+concrete durable backend. It does not yet provide table creation, transactional
+append execution, replay safety, concurrent-writer guarantees, historical
+reads, a command-line interface, or validated S3 behavior. Those claims will be
+added here only with executable evidence.
