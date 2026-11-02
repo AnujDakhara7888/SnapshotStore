@@ -15,6 +15,17 @@ example values are executable fixtures under `fixtures/format-v1`.
 Supported scalar types are `boolean`, `int64`, `uint64`, `float64`, and `utf8`.
 Field order is significant. Schema evolution is not supported in this format.
 
+The schema fingerprint is SHA-256 over this unambiguous byte sequence:
+
+1. the ASCII domain separator `snapshotstore-schema-v1` followed by a zero byte;
+2. the field count as an unsigned 64-bit big-endian integer;
+3. for each field in order, its UTF-8 name length as unsigned 64-bit big-endian,
+   the name bytes, a one-byte type tag, and a one-byte nullability flag.
+
+Type tags are `0` for boolean, `1` for int64, `2` for uint64, `3` for float64,
+and `4` for utf8. The nullability byte is `0` or `1`. This encoding is part of
+format v1 and cannot change without a new format version.
+
 ## `HEAD`
 
 `HEAD` contains `table_id`, `version`, `commit_id`, and `manifest_key`. The
@@ -57,6 +68,10 @@ Readers reject an unsupported format version rather than guessing. Linked
 metadata must agree on table UUID, schema fingerprint, version, commit ID, and
 manifest key. Unknown JSON fields are currently tolerated by Serde for forward
 reader compatibility; writers emit only the documented v1 fields.
+
+The public [snapshot descriptor v1](snapshot-descriptor-v1.md) is derived from
+a validated table, `HEAD`, and manifest. It is an integration contract, not an
+additional persisted commit object.
 
 ## Executable examples
 

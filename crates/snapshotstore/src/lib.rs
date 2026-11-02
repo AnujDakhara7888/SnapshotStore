@@ -7,6 +7,8 @@
 
 #![forbid(unsafe_code)]
 
+pub mod descriptor;
 pub mod errors;
 pub mod metadata;
 pub mod storage;
+pub mod table;
