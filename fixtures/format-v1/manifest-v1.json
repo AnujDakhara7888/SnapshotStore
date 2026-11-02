@@ -4,7 +4,7 @@
   "version": 1,
   "commit_id": "33333333-3333-4333-8333-333333333333",
   "parent_manifest": "manifests/22222222-2222-4222-8222-222222222222.json",
-  "schema_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "schema_fingerprint": "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699",
   "row_count": 3,
   "files": [
     {
@@ -15,7 +15,7 @@
         "algorithm": "sha256",
         "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       },
-      "schema_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "schema_fingerprint": "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699"
     }
   ],
   "operation": {

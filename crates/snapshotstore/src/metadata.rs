@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::errors::MetadataError;
@@ -28,7 +29,11 @@ impl TableMetadata {
         if self.table_id.is_nil() {
             return Err(MetadataError::corrupt("table_id must not be nil"));
         }
-        self.schema.validate()
+        self.schema.validate()?;
+        if self.schema.fingerprint() != self.schema_fingerprint {
+            return Err(MetadataError::SchemaMismatch);
+        }
+        Ok(())
     }
 }
 
@@ -284,7 +289,7 @@ fn commit_id_from_manifest_key(key: &ObjectKey) -> Result<Uuid, MetadataError> {
     })
 }
 
-fn validate_data_key(key: &ObjectKey) -> Result<Uuid, MetadataError> {
+pub(crate) fn validate_data_key(key: &ObjectKey) -> Result<Uuid, MetadataError> {
     let mut segments = key.as_str().split('/');
     let prefix = segments.next();
     let attempt = segments.next();
@@ -334,6 +339,21 @@ impl CanonicalSchemaV1 {
         }
         Ok(())
     }
+
+    /// Computes the v1 fingerprint over ordered fields and explicit type tags.
+    pub fn fingerprint(&self) -> Sha256Digest {
+        let mut hasher = Sha256::new();
+        hasher.update(b"snapshotstore-schema-v1\0");
+        hasher.update((self.fields.len() as u64).to_be_bytes());
+        for field in &self.fields {
+            let name = field.name.as_bytes();
+            hasher.update((name.len() as u64).to_be_bytes());
+            hasher.update(name);
+            hasher.update([field.data_type.fingerprint_tag()]);
+            hasher.update([u8::from(field.nullable)]);
+        }
+        Sha256Digest::from_digest_bytes(hasher.finalize().into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -356,6 +376,18 @@ pub enum DataTypeV1 {
     Float64,
     #[serde(rename = "utf8")]
     Utf8,
+}
+
+impl DataTypeV1 {
+    fn fingerprint_tag(self) -> u8 {
+        match self {
+            Self::Boolean => 0,
+            Self::Int64 => 1,
+            Self::UInt64 => 2,
+            Self::Float64 => 3,
+            Self::Utf8 => 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,6 +503,15 @@ impl Sha256Digest {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    fn from_digest_bytes(bytes: [u8; 32]) -> Self {
+        let mut value = String::with_capacity(64);
+        for byte in bytes {
+            use fmt::Write as _;
+            write!(&mut value, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        Self(value)
+    }
 }
 
 impl fmt::Debug for Sha256Digest {
@@ -511,7 +552,7 @@ impl<'de> Deserialize<'de> for Sha256Digest {
 #[error("SHA-256 digest must be 64 lowercase hexadecimal characters")]
 pub struct InvalidSha256Digest;
 
-fn require_format(found: u32) -> Result<(), MetadataError> {
+pub(crate) fn require_format(found: u32) -> Result<(), MetadataError> {
     if found == FORMAT_VERSION {
         Ok(())
     } else {

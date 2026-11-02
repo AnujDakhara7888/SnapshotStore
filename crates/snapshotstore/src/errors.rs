@@ -1,7 +1,7 @@
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::storage::ObjectKey;
+use crate::storage::{ObjectKey, StorageOperation};
 
 /// Failures detected while decoding or validating committed metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -36,4 +36,36 @@ impl MetadataError {
             message: message.into(),
         }
     }
+}
+
+/// Public failures from table creation and opening.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum TableError {
+    #[error("table.json does not exist")]
+    TableNotFound,
+
+    #[error("table initialization is incomplete for table {table_id}")]
+    InitializationIncomplete { table_id: Uuid },
+
+    #[error("requested schema does not match the existing table")]
+    SchemaMismatch,
+
+    #[error("unsupported metadata format version {found}")]
+    UnsupportedFormat { found: u32 },
+
+    #[error("corrupt metadata at {key}: {message}")]
+    CorruptMetadata { key: ObjectKey, message: String },
+
+    #[error("storage unavailable during {operation}: {message}")]
+    StorageUnavailable {
+        operation: StorageOperation,
+        message: String,
+    },
+
+    #[error("commit status is unknown after {operation} for {key}: {message}")]
+    UnknownCommitStatus {
+        operation: StorageOperation,
+        key: ObjectKey,
+        message: String,
+    },
 }

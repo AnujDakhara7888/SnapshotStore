@@ -1,3 +1,4 @@
+use snapshotstore::descriptor::SnapshotDescriptorV1;
 use snapshotstore::errors::MetadataError;
 use snapshotstore::metadata::{Head, ManifestV1, TableMetadata, validate_snapshot};
 
@@ -5,6 +6,7 @@ const TABLE: &str = include_str!("../../../fixtures/format-v1/table.json");
 const HEAD: &str = include_str!("../../../fixtures/format-v1/head.json");
 const MANIFEST_V0: &str = include_str!("../../../fixtures/format-v1/manifest-v0.json");
 const MANIFEST_V1: &str = include_str!("../../../fixtures/format-v1/manifest-v1.json");
+const DESCRIPTOR_V1: &str = include_str!("../../../fixtures/snapshot-descriptor-v1.json");
 
 fn parse_examples() -> (TableMetadata, Head, ManifestV1, ManifestV1) {
     (
@@ -43,6 +45,32 @@ fn examples_satisfy_internal_and_cross_object_invariants() {
     table.validate().expect("table is valid");
     manifest_v0.validate().expect("version 0 is valid");
     validate_snapshot(&table, &head, &manifest_v1).expect("version 1 snapshot is valid");
+}
+
+#[test]
+fn schema_fingerprint_encoding_is_stable() {
+    let (table, _, _, _) = parse_examples();
+    assert_eq!(
+        table.schema.fingerprint().as_str(),
+        "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699"
+    );
+}
+
+#[test]
+fn descriptor_fixture_matches_the_committed_snapshot() {
+    let (table, head, _, manifest) = parse_examples();
+    let fixture: SnapshotDescriptorV1 =
+        serde_json::from_str(DESCRIPTOR_V1).expect("descriptor fixture decodes");
+    fixture.validate().expect("descriptor fixture is valid");
+
+    let exported = SnapshotDescriptorV1::from_snapshot(&table, &head, &manifest)
+        .expect("committed snapshot exports");
+    assert_eq!(exported, fixture);
+
+    let encoded = serde_json::to_value(exported).expect("descriptor encodes");
+    let expected: serde_json::Value =
+        serde_json::from_str(DESCRIPTOR_V1).expect("valid descriptor JSON");
+    assert_eq!(encoded, expected);
 }
 
 #[test]
@@ -129,7 +157,7 @@ fn duplicate_schema_fields_are_rejected() {
 #[test]
 fn malformed_digest_and_object_key_fail_during_decode() {
     let bad_digest = TABLE.replace(
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699",
         "ABC",
     );
     assert!(serde_json::from_str::<TableMetadata>(&bad_digest).is_err());

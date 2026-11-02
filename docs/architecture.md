@@ -47,6 +47,26 @@ batches.
 The checked-in [format contract](format-v1.md) and JSON fixtures are decoded,
 re-encoded, and validated by the test suite.
 
+## Initialization and opening
+
+Creation first installs `table.json` with immutable create-if-absent semantics.
+If another creator wins, both writers adopt the winner's table identity after
+checking the requested schema. A creator then writes an empty immutable
+version-0 manifest and creates `HEAD`. The first `HEAD` is the initialization
+visibility point; losing creators open the winning snapshot instead of
+overwriting it.
+
+An absent `table.json` means no table exists. An existing `table.json` without
+`HEAD` is an interrupted initialization that a later same-schema create can
+complete while retaining the original table UUID. After a write reports an
+unknown outcome, creation reads the target state and succeeds only when the
+durable bytes prove the write took effect. Otherwise it returns an explicit
+unknown-status error.
+
+Opening resolves `table.json`, `HEAD`, and the named immutable manifest once,
+then validates their linked identities. The resulting handle remains pinned to
+that manifest even if a later writer advances `HEAD`.
+
 ## Local backend
 
 The local adapter uses an advisory interprocess lock, same-directory staging,
@@ -57,7 +77,7 @@ writers sharing one stale token cannot both publish.
 
 ## Current implementation boundary
 
-The storage and metadata contracts and local filesystem adapter are
-implemented. The S3 adapter, table creation, append publication, replay
-reconciliation, snapshots, and command-line interface are separate layers and
-are not yet available.
+The storage and metadata contracts, table initialization and pinned current
+snapshot, stable descriptor, and local filesystem adapter are implemented. The
+S3 adapter, append publication, replay reconciliation, historical snapshots,
+and command-line interface are separate layers and are not yet available.
