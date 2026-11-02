@@ -1,0 +1,16 @@
+[package]
+name = "snapshotstore"
+description = "Transactional append-only tables over immutable Parquet files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+arrow.workspace = true
+parquet.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
