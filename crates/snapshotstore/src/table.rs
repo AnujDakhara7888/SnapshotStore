@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use arrow::record_batch::RecordBatch;
 use bytes::Bytes;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -11,10 +12,12 @@ use uuid::Uuid;
 use crate::descriptor::SnapshotDescriptorV1;
 use crate::errors::{MetadataError, TableError};
 use crate::metadata::{
-    CanonicalSchemaV1, FORMAT_VERSION, Head, ManifestV1, OperationKind, OperationMetadata,
+    BatchId, CanonicalSchemaV1, Checksum, ChecksumAlgorithm, CommittedBatch, DataFileDescriptor,
+    FORMAT_VERSION, Head, ManifestV1, OperationKind, OperationMetadata, Sha256Digest,
     TableMetadata, manifest_key, validate_snapshot,
 };
-use crate::storage::{ObjectKey, Storage, StorageError};
+use crate::parquet_io;
+use crate::storage::{ObjectKey, Storage, StorageError, StoredObject, VersionToken};
 
 fn table_key() -> ObjectKey {
     ObjectKey::parse("table.json").expect("static object key is valid")
@@ -31,6 +34,7 @@ pub struct Table<S: Storage + ?Sized> {
     table_metadata: TableMetadata,
     head: Head,
     manifest: ManifestV1,
+    publication_token: Option<VersionToken>,
 }
 
 impl<S: Storage + ?Sized> Table<S> {
@@ -74,6 +78,271 @@ impl<S: Storage + ?Sized> Table<S> {
         SnapshotDescriptorV1::from_snapshot(&self.table_metadata, &self.head, &self.manifest)
             .expect("Table construction validates the complete snapshot")
     }
+
+    /// Reads every immutable Parquet file in this pinned snapshot.
+    ///
+    /// File length, SHA-256 checksum, Arrow schema, and cumulative row count are
+    /// verified before rows are returned.
+    pub async fn read_batches(&self) -> Result<Vec<RecordBatch>, TableError> {
+        let mut batches = Vec::new();
+        let mut rows = 0_u64;
+        for file in &self.manifest.files {
+            let object = match self.storage.get_with_token(&file.object_key).await {
+                Ok(object) => object,
+                Err(StorageError::NotFound { .. }) => {
+                    return Err(TableError::MissingCommittedFile {
+                        key: file.object_key.clone(),
+                    });
+                }
+                Err(error) => return Err(storage_error(&file.object_key, error)),
+            };
+            if object.bytes.len() as u64 != file.byte_length {
+                return Err(TableError::CorruptData {
+                    key: file.object_key.clone(),
+                    message: format!(
+                        "byte length {} does not match manifest length {}",
+                        object.bytes.len(),
+                        file.byte_length
+                    ),
+                });
+            }
+            if Sha256Digest::compute(&object.bytes) != file.checksum.value {
+                return Err(TableError::CorruptData {
+                    key: file.object_key.clone(),
+                    message: "SHA-256 checksum does not match manifest".to_owned(),
+                });
+            }
+            let file_batches = parquet_io::read_batches(
+                &file.object_key,
+                object.bytes,
+                &self.table_metadata.schema,
+            )?;
+            let file_rows = file_batches.iter().try_fold(0_u64, |total, batch| {
+                total.checked_add(batch.num_rows() as u64)
+            });
+            let file_rows = file_rows.ok_or_else(|| TableError::CorruptData {
+                key: file.object_key.clone(),
+                message: "decoded row count overflow".to_owned(),
+            })?;
+            if file_rows != file.row_count {
+                return Err(TableError::CorruptData {
+                    key: file.object_key.clone(),
+                    message: format!(
+                        "decoded row count {file_rows} does not match manifest count {}",
+                        file.row_count
+                    ),
+                });
+            }
+            rows = rows
+                .checked_add(file_rows)
+                .ok_or_else(|| TableError::CorruptData {
+                    key: file.object_key.clone(),
+                    message: "snapshot row count overflow".to_owned(),
+                })?;
+            batches.extend(file_batches);
+        }
+        if rows != self.manifest.row_count {
+            return Err(TableError::CorruptMetadata {
+                key: self.head.manifest_key.clone(),
+                message: format!(
+                    "decoded row count {rows} does not match snapshot count {}",
+                    self.manifest.row_count
+                ),
+            });
+        }
+        Ok(batches)
+    }
+
+    /// Returns reachable snapshot descriptors in ascending version order.
+    pub async fn history(&self) -> Result<Vec<SnapshotDescriptorV1>, TableError> {
+        let mut snapshots = vec![self.descriptor()];
+        let mut child = self.manifest.clone();
+        while let Some(parent_key) = child.parent_manifest.clone() {
+            let parent =
+                read_manifest(self.storage.as_ref(), &self.table_metadata, &parent_key).await?;
+            validate_parent(&child, &parent, &parent_key)?;
+            let head = head_for_manifest(&parent);
+            snapshots.push(
+                SnapshotDescriptorV1::from_snapshot(&self.table_metadata, &head, &parent)
+                    .map_err(|error| metadata_error(&parent_key, error))?,
+            );
+            child = parent;
+        }
+        snapshots.reverse();
+        Ok(snapshots)
+    }
+
+    /// Opens a historical snapshot reachable from this pinned snapshot.
+    pub async fn snapshot_at_version(&self, version: u64) -> Result<Table<S>, TableError> {
+        if version > self.version() {
+            return Err(TableError::VersionNotFound { version });
+        }
+        if version == self.version() {
+            return Ok(Table {
+                storage: Arc::clone(&self.storage),
+                table_metadata: self.table_metadata.clone(),
+                head: self.head.clone(),
+                manifest: self.manifest.clone(),
+                publication_token: None,
+            });
+        }
+
+        let mut child = self.manifest.clone();
+        while let Some(parent_key) = child.parent_manifest.clone() {
+            let parent =
+                read_manifest(self.storage.as_ref(), &self.table_metadata, &parent_key).await?;
+            validate_parent(&child, &parent, &parent_key)?;
+            if parent.version == version {
+                return Ok(Table {
+                    storage: Arc::clone(&self.storage),
+                    table_metadata: self.table_metadata.clone(),
+                    head: head_for_manifest(&parent),
+                    manifest: parent,
+                    publication_token: None,
+                });
+            }
+            child = parent;
+        }
+        Err(TableError::VersionNotFound { version })
+    }
+}
+
+/// Appends one nonempty Arrow batch as an immutable Parquet file and full manifest.
+///
+/// This initial append layer reports a conflict if `HEAD` changed after the
+/// supplied table was opened. Replay reconciliation and bounded rebasing are
+/// layered on this primitive separately.
+pub async fn append_batch<S: Storage + ?Sized>(
+    table: &Table<S>,
+    batch_id: BatchId,
+    batch: &RecordBatch,
+) -> Result<Table<S>, TableError> {
+    if batch.num_rows() == 0 {
+        return Err(TableError::EmptyBatch);
+    }
+    parquet_io::validate_batch_schema(&table.table_metadata.schema, batch)?;
+    if table.manifest.committed_batches.contains_key(&batch_id) {
+        return Err(TableError::BatchIdReuse {
+            batch_id: batch_id.as_str().to_owned(),
+        });
+    }
+    let expected = table
+        .publication_token
+        .as_ref()
+        .ok_or(TableError::HistoricalSnapshotReadOnly)?;
+
+    let attempt_id = Uuid::new_v4();
+    let file_id = Uuid::new_v4();
+    let data_key = ObjectKey::parse(format!("data/{attempt_id}/{file_id}.parquet"))
+        .expect("UUID data keys are valid");
+    let parquet_bytes = parquet_io::write_batch(batch)?;
+    let checksum = Sha256Digest::compute(&parquet_bytes);
+    let file = DataFileDescriptor {
+        object_key: data_key.clone(),
+        byte_length: parquet_bytes.len() as u64,
+        row_count: batch.num_rows() as u64,
+        checksum: Checksum {
+            algorithm: ChecksumAlgorithm::Sha256,
+            value: checksum.clone(),
+        },
+        schema_fingerprint: table.table_metadata.schema_fingerprint.clone(),
+    };
+    put_immutable_reconciled(table.storage.as_ref(), &data_key, parquet_bytes).await?;
+
+    let commit_id = Uuid::new_v4();
+    let version = table
+        .version()
+        .checked_add(1)
+        .ok_or_else(|| TableError::CorruptMetadata {
+            key: table.head.manifest_key.clone(),
+            message: "table version overflow".to_owned(),
+        })?;
+    let row_count = table
+        .manifest
+        .row_count
+        .checked_add(batch.num_rows() as u64)
+        .ok_or_else(|| TableError::CorruptMetadata {
+            key: table.head.manifest_key.clone(),
+            message: "table row count overflow".to_owned(),
+        })?;
+    let mut files = table.manifest.files.clone();
+    files.push(file);
+    let mut committed_batches = table.manifest.committed_batches.clone();
+    committed_batches.insert(
+        batch_id.clone(),
+        CommittedBatch {
+            input_fingerprint: checksum,
+            first_commit_id: commit_id,
+            first_version: version,
+            added_rows: batch.num_rows() as u64,
+        },
+    );
+    let manifest = ManifestV1 {
+        format_version: FORMAT_VERSION,
+        table_id: table.table_id(),
+        version,
+        commit_id,
+        parent_manifest: Some(table.head.manifest_key.clone()),
+        schema_fingerprint: table.table_metadata.schema_fingerprint.clone(),
+        row_count,
+        files,
+        operation: OperationMetadata {
+            kind: OperationKind::Append,
+            attempt_id,
+            batch_id: Some(batch_id),
+            added_rows: batch.num_rows() as u64,
+            added_files: vec![data_key],
+        },
+        committed_batches,
+    };
+    let manifest_key = manifest_key(commit_id);
+    manifest
+        .validate()
+        .map_err(|error| metadata_error(&manifest_key, error))?;
+    let manifest_bytes = encode(&manifest, &manifest_key)?;
+    put_immutable_reconciled(table.storage.as_ref(), &manifest_key, manifest_bytes).await?;
+
+    let head = Head {
+        table_id: table.table_id(),
+        version,
+        commit_id,
+        manifest_key,
+    };
+    let key = head_key();
+    let bytes = encode(&head, &key)?;
+    match table
+        .storage
+        .replace_if_token_matches(&key, expected, bytes)
+        .await
+    {
+        Ok(publication_token) => Ok(Table {
+            storage: Arc::clone(&table.storage),
+            table_metadata: table.table_metadata.clone(),
+            head,
+            manifest,
+            publication_token: Some(publication_token),
+        }),
+        Err(StorageError::PreconditionFailed { .. }) => Err(TableError::Conflict {
+            expected_version: table.version(),
+        }),
+        Err(StorageError::UnknownWriteOutcome {
+            operation,
+            key,
+            message,
+        }) => reconcile_append(table, head, manifest, operation, key, message).await,
+        Err(error) => Err(storage_error(&key, error)),
+    }
+}
+
+/// Opens a version reachable from the current committed `HEAD` chain.
+pub async fn open_table_at_version<S: Storage + ?Sized>(
+    storage: Arc<S>,
+    version: u64,
+) -> Result<Table<S>, TableError> {
+    open_table(storage)
+        .await?
+        .snapshot_at_version(version)
+        .await
 }
 
 /// Creates an empty version-0 table or completes an interrupted initialization.
@@ -203,7 +472,137 @@ pub async fn open_table<S: Storage + ?Sized>(storage: Arc<S>) -> Result<Table<S>
         table_metadata: table,
         head,
         manifest,
+        publication_token: Some(head_object.version),
     })
+}
+
+async fn reconcile_append<S: Storage + ?Sized>(
+    table: &Table<S>,
+    head: Head,
+    manifest: ManifestV1,
+    operation: crate::storage::StorageOperation,
+    outcome_key: ObjectKey,
+    message: String,
+) -> Result<Table<S>, TableError> {
+    let key = head_key();
+    match table.storage.get_with_token(&key).await {
+        Ok(StoredObject { bytes, version }) => {
+            let observed: Head = decode(&key, &bytes)?;
+            if observed == head {
+                Ok(Table {
+                    storage: Arc::clone(&table.storage),
+                    table_metadata: table.table_metadata.clone(),
+                    head,
+                    manifest,
+                    publication_token: Some(version),
+                })
+            } else {
+                Err(TableError::Conflict {
+                    expected_version: table.version(),
+                })
+            }
+        }
+        Err(_) => Err(TableError::UnknownCommitStatus {
+            operation,
+            key: outcome_key,
+            message,
+        }),
+    }
+}
+
+async fn read_manifest<S: Storage + ?Sized>(
+    storage: &S,
+    table: &TableMetadata,
+    key: &ObjectKey,
+) -> Result<ManifestV1, TableError> {
+    let object = match storage.get_with_token(key).await {
+        Ok(object) => object,
+        Err(StorageError::NotFound { .. }) => {
+            return Err(TableError::CorruptMetadata {
+                key: key.clone(),
+                message: "committed history names a manifest that does not exist".to_owned(),
+            });
+        }
+        Err(error) => return Err(storage_error(key, error)),
+    };
+    let manifest: ManifestV1 = decode(key, &object.bytes)?;
+    let head = head_for_manifest(&manifest);
+    validate_snapshot(table, &head, &manifest).map_err(|error| metadata_error(key, error))?;
+    Ok(manifest)
+}
+
+fn head_for_manifest(manifest: &ManifestV1) -> Head {
+    Head {
+        table_id: manifest.table_id,
+        version: manifest.version,
+        commit_id: manifest.commit_id,
+        manifest_key: manifest_key(manifest.commit_id),
+    }
+}
+
+fn validate_parent(
+    child: &ManifestV1,
+    parent: &ManifestV1,
+    parent_key: &ObjectKey,
+) -> Result<(), TableError> {
+    let expected_version =
+        child
+            .version
+            .checked_sub(1)
+            .ok_or_else(|| TableError::CorruptMetadata {
+                key: parent_key.clone(),
+                message: "version-0 manifest unexpectedly names a parent".to_owned(),
+            })?;
+    if parent.version != expected_version {
+        return Err(TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: format!(
+                "parent version {} does not precede child version {}",
+                parent.version, child.version
+            ),
+        });
+    }
+    if parent.table_id != child.table_id
+        || parent.schema_fingerprint != child.schema_fingerprint
+        || manifest_key(parent.commit_id) != *parent_key
+    {
+        return Err(TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: "parent identity does not match the committed history link".to_owned(),
+        });
+    }
+    if child.files.len() <= parent.files.len() || child.files[..parent.files.len()] != parent.files
+    {
+        return Err(TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: "child manifest does not preserve the complete parent file list".to_owned(),
+        });
+    }
+    let expected_rows = parent
+        .row_count
+        .checked_add(child.operation.added_rows)
+        .ok_or_else(|| TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: "history row count overflow".to_owned(),
+        })?;
+    if child.row_count != expected_rows {
+        return Err(TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: "child row count does not equal parent plus appended rows".to_owned(),
+        });
+    }
+    if parent
+        .committed_batches
+        .iter()
+        .any(|(batch_id, receipt)| child.committed_batches.get(batch_id) != Some(receipt))
+        || child.committed_batches.len() != parent.committed_batches.len() + 1
+    {
+        return Err(TableError::CorruptMetadata {
+            key: parent_key.clone(),
+            message: "child manifest does not preserve the cumulative batch registry".to_owned(),
+        });
+    }
+    Ok(())
 }
 
 async fn ensure_table_metadata<S: Storage + ?Sized>(
@@ -320,7 +719,15 @@ fn reconciliation_error(
     match observed {
         TableError::SchemaMismatch
         | TableError::UnsupportedFormat { .. }
-        | TableError::CorruptMetadata { .. } => observed,
+        | TableError::CorruptMetadata { .. }
+        | TableError::CorruptData { .. }
+        | TableError::MissingCommittedFile { .. }
+        | TableError::BatchIdReuse { .. }
+        | TableError::Conflict { .. }
+        | TableError::VersionNotFound { .. }
+        | TableError::HistoricalSnapshotReadOnly
+        | TableError::EmptyBatch
+        | TableError::InvalidBatch { .. } => observed,
         TableError::TableNotFound
         | TableError::InitializationIncomplete { .. }
         | TableError::StorageUnavailable { .. }

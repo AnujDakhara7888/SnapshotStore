@@ -26,6 +26,13 @@ response is reconciled by reading durable state. The local filesystem adapter
 adds interprocess locking, durable create-if-absent, and atomic token-matched
 replacement.
 
+Appending a nonempty Arrow `RecordBatch` writes a uniquely named immutable
+Zstandard Parquet object and a complete immutable manifest before conditionally
+replacing `HEAD`. Readers can remain pinned to an earlier snapshot, open a
+reachable historical version, or traverse committed history without relying on
+object listing. Reads validate file length, SHA-256 checksum, schema, and row
+count before returning batches.
+
 Executable fixtures cover an empty table, its first append, and the stable
 snapshot descriptor exported to query integrations. Tests validate JSON round
 trips, cross-object identities, row counts, file sets, schema fingerprints,
@@ -35,12 +42,11 @@ A separate integration test writes a nullable Arrow `RecordBatch` to a
 Zstandard-compressed Parquet file and reads it back without changing its schema,
 values, nulls, or row order.
 
-Transactional appends are under active development. The following behavior is
-design intent until its implementation and tests land:
+Replay-safe and automatically rebased appends are under active development.
+The following behavior is design intent until its implementation and tests
+land:
 
-- immutable Parquet data files and complete versioned manifests;
-- optimistic compare-and-swap publication for local storage and AWS S3;
-- historical snapshots;
+- optimistic compare-and-swap publication for AWS S3;
 - replay-safe batch IDs with canonical logical fingerprints;
 - typed conflict, corruption, and unknown-outcome errors.
 
@@ -90,11 +96,12 @@ SnapshotStore is deliberately append-only. Row updates and deletes, schema
 evolution, cross-table transactions, compaction, vacuum, replication,
 distributed consensus, and a network service are outside the initial scope.
 
-The current code defines and tests table initialization, storage and metadata
-contracts, a stable snapshot descriptor, and a local durable backend. It does
-not yet provide transactional append execution, replay safety, historical
-reads, a command-line interface, or validated S3 behavior. Initialization has
-deterministic concurrent-creator and response-loss coverage. The local append
-evidence currently covers conditional replacement across two processes, not
-the complete append protocol or physical power-loss behavior. Further claims
-will be added only with executable evidence.
+The current code defines and tests table initialization, single-attempt append
+publication, pinned and historical reads, storage and metadata contracts, a
+stable snapshot descriptor, and a local durable backend. It does not yet
+provide replay reconciliation, bounded conflict rebasing, a command-line
+interface, or validated S3 behavior. Initialization has deterministic
+concurrent-creator and response-loss coverage. Append tests show a stale writer
+cannot replace a committed update, but do not yet cover the complete retry and
+fault matrix or physical power-loss behavior. Further claims will be added only
+with executable evidence.
