@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::descriptor::SnapshotDescriptorV1;
 use crate::errors::{MetadataError, TableError};
+use crate::fingerprint::fingerprint_batches;
 use crate::metadata::{
     BatchId, CanonicalSchemaV1, Checksum, ChecksumAlgorithm, CommittedBatch, DataFileDescriptor,
     FORMAT_VERSION, Head, ManifestV1, OperationKind, OperationMetadata, Sha256Digest,
@@ -207,23 +208,79 @@ impl<S: Storage + ?Sized> Table<S> {
     }
 }
 
-/// Appends one nonempty Arrow batch as an immutable Parquet file and full manifest.
-///
-/// This initial append layer reports a conflict if `HEAD` changed after the
-/// supplied table was opened. Replay reconciliation and bounded rebasing are
-/// layered on this primitive separately.
+/// Stable identity returned for a first append and every matching replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppendReceipt {
+    pub table_id: Uuid,
+    pub first_commit_id: Uuid,
+    pub first_version: u64,
+    pub batch_id: BatchId,
+    pub fingerprint: Sha256Digest,
+    pub added_rows: u64,
+    pub replayed: bool,
+}
+
+/// The pinned table state and durable receipt resolved by an append call.
+#[derive(Debug)]
+pub struct AppendResult<S: Storage + ?Sized> {
+    pub table: Table<S>,
+    pub receipt: AppendReceipt,
+}
+
+impl<S: Storage + ?Sized> std::ops::Deref for AppendResult<S> {
+    type Target = Table<S>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.table
+    }
+}
+
+/// Appends one nonempty Arrow batch.
 pub async fn append_batch<S: Storage + ?Sized>(
     table: &Table<S>,
     batch_id: BatchId,
     batch: &RecordBatch,
-) -> Result<Table<S>, TableError> {
-    if batch.num_rows() == 0 {
-        return Err(TableError::EmptyBatch);
-    }
-    parquet_io::validate_batch_schema(&table.table_metadata.schema, batch)?;
-    if table.manifest.committed_batches.contains_key(&batch_id) {
+) -> Result<AppendResult<S>, TableError> {
+    append_batches(table, batch_id, std::slice::from_ref(batch)).await
+}
+
+/// Appends ordered Arrow batches as one replay-safe logical input.
+///
+/// The logical fingerprint is independent of `RecordBatch` boundaries and
+/// physical Parquet encoding. A matching committed ID returns its original
+/// receipt without writing objects or advancing `HEAD`; changed content under
+/// the same ID is rejected.
+pub async fn append_batches<S: Storage + ?Sized>(
+    table: &Table<S>,
+    batch_id: BatchId,
+    batches: &[RecordBatch],
+) -> Result<AppendResult<S>, TableError> {
+    let fingerprint = fingerprint_batches(&table.table_metadata.schema, batches)?;
+    let added_rows = batches.iter().try_fold(0_u64, |total, batch| {
+        total.checked_add(batch.num_rows() as u64)
+    });
+    let added_rows = added_rows.ok_or_else(|| TableError::InvalidBatch {
+        message: "logical row count overflow".to_owned(),
+    })?;
+    if let Some(committed) = table.manifest.committed_batches.get(&batch_id) {
+        if committed.input_fingerprint == fingerprint {
+            return Ok(AppendResult {
+                table: clone_table(table),
+                receipt: AppendReceipt {
+                    table_id: table.table_id(),
+                    first_commit_id: committed.first_commit_id,
+                    first_version: committed.first_version,
+                    batch_id,
+                    fingerprint,
+                    added_rows: committed.added_rows,
+                    replayed: true,
+                },
+            });
+        }
         return Err(TableError::BatchIdReuse {
             batch_id: batch_id.as_str().to_owned(),
+            committed_fingerprint: committed.input_fingerprint.as_str().to_owned(),
+            supplied_fingerprint: fingerprint.as_str().to_owned(),
         });
     }
     let expected = table
@@ -232,22 +289,27 @@ pub async fn append_batch<S: Storage + ?Sized>(
         .ok_or(TableError::HistoricalSnapshotReadOnly)?;
 
     let attempt_id = Uuid::new_v4();
-    let file_id = Uuid::new_v4();
-    let data_key = ObjectKey::parse(format!("data/{attempt_id}/{file_id}.parquet"))
-        .expect("UUID data keys are valid");
-    let parquet_bytes = parquet_io::write_batch(batch)?;
-    let checksum = Sha256Digest::compute(&parquet_bytes);
-    let file = DataFileDescriptor {
-        object_key: data_key.clone(),
-        byte_length: parquet_bytes.len() as u64,
-        row_count: batch.num_rows() as u64,
-        checksum: Checksum {
-            algorithm: ChecksumAlgorithm::Sha256,
-            value: checksum.clone(),
-        },
-        schema_fingerprint: table.table_metadata.schema_fingerprint.clone(),
-    };
-    put_immutable_reconciled(table.storage.as_ref(), &data_key, parquet_bytes).await?;
+    let mut added_files = Vec::new();
+    let mut files = table.manifest.files.clone();
+    for batch in batches.iter().filter(|batch| batch.num_rows() > 0) {
+        let file_id = Uuid::new_v4();
+        let data_key = ObjectKey::parse(format!("data/{attempt_id}/{file_id}.parquet"))
+            .expect("UUID data keys are valid");
+        let parquet_bytes = parquet_io::write_batch(batch)?;
+        let file = DataFileDescriptor {
+            object_key: data_key.clone(),
+            byte_length: parquet_bytes.len() as u64,
+            row_count: batch.num_rows() as u64,
+            checksum: Checksum {
+                algorithm: ChecksumAlgorithm::Sha256,
+                value: Sha256Digest::compute(&parquet_bytes),
+            },
+            schema_fingerprint: table.table_metadata.schema_fingerprint.clone(),
+        };
+        put_immutable_reconciled(table.storage.as_ref(), &data_key, parquet_bytes).await?;
+        added_files.push(data_key);
+        files.push(file);
+    }
 
     let commit_id = Uuid::new_v4();
     let version = table
@@ -260,23 +322,22 @@ pub async fn append_batch<S: Storage + ?Sized>(
     let row_count = table
         .manifest
         .row_count
-        .checked_add(batch.num_rows() as u64)
+        .checked_add(added_rows)
         .ok_or_else(|| TableError::CorruptMetadata {
             key: table.head.manifest_key.clone(),
             message: "table row count overflow".to_owned(),
         })?;
-    let mut files = table.manifest.files.clone();
-    files.push(file);
     let mut committed_batches = table.manifest.committed_batches.clone();
     committed_batches.insert(
         batch_id.clone(),
         CommittedBatch {
-            input_fingerprint: checksum,
+            input_fingerprint: fingerprint.clone(),
             first_commit_id: commit_id,
             first_version: version,
-            added_rows: batch.num_rows() as u64,
+            added_rows,
         },
     );
+    let receipt_batch_id = batch_id.clone();
     let manifest = ManifestV1 {
         format_version: FORMAT_VERSION,
         table_id: table.table_id(),
@@ -290,8 +351,8 @@ pub async fn append_batch<S: Storage + ?Sized>(
             kind: OperationKind::Append,
             attempt_id,
             batch_id: Some(batch_id),
-            added_rows: batch.num_rows() as u64,
-            added_files: vec![data_key],
+            added_rows,
+            added_files,
         },
         committed_batches,
     };
@@ -310,27 +371,51 @@ pub async fn append_batch<S: Storage + ?Sized>(
     };
     let key = head_key();
     let bytes = encode(&head, &key)?;
-    match table
+    let published = match table
         .storage
         .replace_if_token_matches(&key, expected, bytes)
         .await
     {
-        Ok(publication_token) => Ok(Table {
+        Ok(publication_token) => Table {
             storage: Arc::clone(&table.storage),
             table_metadata: table.table_metadata.clone(),
             head,
             manifest,
             publication_token: Some(publication_token),
-        }),
-        Err(StorageError::PreconditionFailed { .. }) => Err(TableError::Conflict {
-            expected_version: table.version(),
-        }),
+        },
+        Err(StorageError::PreconditionFailed { .. }) => {
+            return Err(TableError::Conflict {
+                expected_version: table.version(),
+            });
+        }
         Err(StorageError::UnknownWriteOutcome {
             operation,
             key,
             message,
-        }) => reconcile_append(table, head, manifest, operation, key, message).await,
-        Err(error) => Err(storage_error(&key, error)),
+        }) => reconcile_append(table, head, manifest, operation, key, message).await?,
+        Err(error) => return Err(storage_error(&key, error)),
+    };
+    Ok(AppendResult {
+        table: published,
+        receipt: AppendReceipt {
+            table_id: table.table_id(),
+            first_commit_id: commit_id,
+            first_version: version,
+            batch_id: receipt_batch_id,
+            fingerprint,
+            added_rows,
+            replayed: false,
+        },
+    })
+}
+
+fn clone_table<S: Storage + ?Sized>(table: &Table<S>) -> Table<S> {
+    Table {
+        storage: Arc::clone(&table.storage),
+        table_metadata: table.table_metadata.clone(),
+        head: table.head.clone(),
+        manifest: table.manifest.clone(),
+        publication_token: table.publication_token.clone(),
     }
 }
 

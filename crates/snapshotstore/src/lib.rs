@@ -9,6 +9,7 @@
 
 pub mod descriptor;
 pub mod errors;
+pub mod fingerprint;
 pub mod metadata;
 mod parquet_io;
 pub mod storage;

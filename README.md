@@ -42,13 +42,18 @@ A separate integration test writes a nullable Arrow `RecordBatch` to a
 Zstandard-compressed Parquet file and reads it back without changing its schema,
 values, nulls, or row order.
 
-Replay-safe and automatically rebased appends are under active development.
-The following behavior is design intent until its implementation and tests
-land:
+Automatically rebased appends and the S3 adapter are under active development.
+The remaining publication behavior is design intent until its implementation
+and tests land:
 
 - optimistic compare-and-swap publication for AWS S3;
-- replay-safe batch IDs with canonical logical fingerprints;
-- typed conflict, corruption, and unknown-outcome errors.
+- bounded retry after a stale-writer conflict.
+
+Caller-supplied batch IDs are replay-safe on a current snapshot. A canonical
+logical fingerprint is independent of Arrow chunking and Parquet layout;
+matching retries return the first durable receipt without advancing the table,
+while changed content under the same ID is rejected. The [fingerprint v1
+contract](docs/batch-fingerprint-v1.md) defines the byte encoding.
 
 ## Design overview
 
@@ -99,9 +104,9 @@ distributed consensus, and a network service are outside the initial scope.
 The current code defines and tests table initialization, single-attempt append
 publication, pinned and historical reads, storage and metadata contracts, a
 stable snapshot descriptor, and a local durable backend. It does not yet
-provide replay reconciliation, bounded conflict rebasing, a command-line
-interface, or validated S3 behavior. Initialization has deterministic
-concurrent-creator and response-loss coverage. Append tests show a stale writer
-cannot replace a committed update, but do not yet cover the complete retry and
-fault matrix or physical power-loss behavior. Further claims will be added only
-with executable evidence.
+provide automatic stale-writer reconciliation, bounded conflict rebasing, a
+command-line interface, or validated S3 behavior. Initialization has
+deterministic concurrent-creator and response-loss coverage. Append tests show
+a stale writer cannot replace a committed update, but do not yet cover the
+complete retry and fault matrix or physical power-loss behavior. Further claims
+will be added only with executable evidence.

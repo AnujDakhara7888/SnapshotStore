@@ -56,8 +56,14 @@ pub enum TableError {
     #[error("invalid input batch: {message}")]
     InvalidBatch { message: String },
 
-    #[error("batch ID {batch_id} is already committed")]
-    BatchIdReuse { batch_id: String },
+    #[error(
+        "batch ID {batch_id} is already committed with fingerprint {committed_fingerprint}, not {supplied_fingerprint}"
+    )]
+    BatchIdReuse {
+        batch_id: String,
+        committed_fingerprint: String,
+        supplied_fingerprint: String,
+    },
 
     #[error("HEAD changed while publishing from version {expected_version}")]
     Conflict { expected_version: u64 },

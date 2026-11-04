@@ -62,10 +62,9 @@ Object keys are relative to a configured table root. Absolute paths, backslash
 separators, empty segments, `.` segments, and `..` segments are invalid.
 Credentials and absolute storage locations never appear in persistent metadata.
 
-SHA-256 values are exactly 64 lowercase hexadecimal characters. The logical
-input fingerprint algorithm and canonical row encoding will be specified with
-the replay implementation; the current format reserves and validates its
-representation without claiming that computation exists yet.
+SHA-256 values are exactly 64 lowercase hexadecimal characters. Batch registry
+fingerprints use the versioned [canonical logical encoding](batch-fingerprint-v1.md).
+They do not depend on physical Parquet serialization.
 
 ## Compatibility
 
