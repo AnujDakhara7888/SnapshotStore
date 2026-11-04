@@ -46,6 +46,11 @@ Version 0 is an empty `create` manifest with no parent, files, rows, or batch
 IDs. Positive versions are `append` manifests with a parent, a nonempty batch,
 and at least one file and row.
 
+Committed history is the parent chain reachable from `HEAD`. Every positive
+version links to exactly the preceding version and carries forward the complete
+parent file list and cumulative batch registry. Unreachable manifests and data
+objects are not committed table state.
+
 Each file descriptor records its relative object key, byte length, row count,
 SHA-256 content checksum, and schema fingerprint. Committed files with missing
 bytes, zero rows, duplicate keys, schema mismatches, or inconsistent cumulative

@@ -67,6 +67,25 @@ Opening resolves `table.json`, `HEAD`, and the named immutable manifest once,
 then validates their linked identities. The resulting handle remains pinned to
 that manifest even if a later writer advances `HEAD`.
 
+## Append and historical reads
+
+An append validates a nonempty Arrow batch against the fixed table schema,
+encodes it as Zstandard Parquet, and writes it under a unique attempt path. It
+then writes an immutable full manifest containing every active file and the
+parent manifest link. Only a token-matched replacement of `HEAD` makes those
+prepared objects visible. If another writer has already changed `HEAD`, the
+append reports a conflict and its unreachable objects remain harmless orphans.
+
+A table handle owns the manifest and file list it resolved, so later commits do
+not alter its reads. Historical lookup walks parent links from a committed
+`HEAD`; it never treats an unreferenced manifest as history. Each link must
+decrease the version by one and preserve table identity, schema, prior files,
+row totals, and the cumulative batch registry.
+
+Reading verifies each committed file's presence, byte length, SHA-256 checksum,
+Arrow schema, and decoded row count. Missing or modified committed data is an
+error rather than a partial result.
+
 ## Local backend
 
 The local adapter uses an advisory interprocess lock, same-directory staging,
@@ -77,7 +96,8 @@ writers sharing one stale token cannot both publish.
 
 ## Current implementation boundary
 
-The storage and metadata contracts, table initialization and pinned current
-snapshot, stable descriptor, and local filesystem adapter are implemented. The
-S3 adapter, append publication, replay reconciliation, historical snapshots,
-and command-line interface are separate layers and are not yet available.
+The storage and metadata contracts, table initialization, single-attempt append
+publication, pinned and historical snapshots, stable descriptor, and local
+filesystem adapter are implemented. Replay reconciliation, bounded rebasing,
+the S3 adapter, and command-line interface are separate layers and are not yet
+available.

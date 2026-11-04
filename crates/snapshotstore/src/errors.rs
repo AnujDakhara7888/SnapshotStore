@@ -50,6 +50,30 @@ pub enum TableError {
     #[error("requested schema does not match the existing table")]
     SchemaMismatch,
 
+    #[error("empty batches are not supported")]
+    EmptyBatch,
+
+    #[error("invalid input batch: {message}")]
+    InvalidBatch { message: String },
+
+    #[error("batch ID {batch_id} is already committed")]
+    BatchIdReuse { batch_id: String },
+
+    #[error("HEAD changed while publishing from version {expected_version}")]
+    Conflict { expected_version: u64 },
+
+    #[error("committed version {version} is not reachable from HEAD")]
+    VersionNotFound { version: u64 },
+
+    #[error("historical snapshots are read-only")]
+    HistoricalSnapshotReadOnly,
+
+    #[error("committed data file is missing: {key}")]
+    MissingCommittedFile { key: ObjectKey },
+
+    #[error("corrupt committed data at {key}: {message}")]
+    CorruptData { key: ObjectKey, message: String },
+
     #[error("unsupported metadata format version {found}")]
     UnsupportedFormat { found: u32 },
 

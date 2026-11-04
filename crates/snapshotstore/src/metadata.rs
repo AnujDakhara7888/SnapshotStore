@@ -504,6 +504,11 @@ impl Sha256Digest {
         &self.0
     }
 
+    /// Computes a lowercase SHA-256 digest for immutable object bytes.
+    pub fn compute(bytes: &[u8]) -> Self {
+        Self::from_digest_bytes(Sha256::digest(bytes).into())
+    }
+
     fn from_digest_bytes(bytes: [u8; 32]) -> Self {
         let mut value = String::with_capacity(64);
         for byte in bytes {

@@ -10,5 +10,6 @@
 pub mod descriptor;
 pub mod errors;
 pub mod metadata;
+mod parquet_io;
 pub mod storage;
 pub mod table;
