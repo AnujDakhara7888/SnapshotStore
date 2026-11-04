@@ -86,6 +86,19 @@ Reading verifies each committed file's presence, byte length, SHA-256 checksum,
 Arrow schema, and decoded row count. Missing or modified committed data is an
 error rather than a partial result.
 
+## Replay identity
+
+Each append carries a caller-supplied batch ID and a canonical logical
+fingerprint. The fingerprint covers the fixed schema and ordered logical rows,
+not Arrow chunk boundaries, Parquet bytes, compression, object paths, or
+attempt IDs. A matching ID and fingerprint returns the first commit receipt
+from the cumulative manifest registry without writing new objects. A matching
+ID with different logical content is rejected.
+
+Receipts retain the table ID, batch ID, logical fingerprint, first successful
+commit ID and version, added row count, and whether the current call was a
+replay. The first receipt remains authoritative even after later commits.
+
 ## Local backend
 
 The local adapter uses an advisory interprocess lock, same-directory staging,
@@ -98,6 +111,6 @@ writers sharing one stale token cannot both publish.
 
 The storage and metadata contracts, table initialization, single-attempt append
 publication, pinned and historical snapshots, stable descriptor, and local
-filesystem adapter are implemented. Replay reconciliation, bounded rebasing,
-the S3 adapter, and command-line interface are separate layers and are not yet
-available.
+filesystem adapter are implemented. Automatic stale-writer reconciliation,
+bounded rebasing, the S3 adapter, and command-line interface are separate
+layers and are not yet available.

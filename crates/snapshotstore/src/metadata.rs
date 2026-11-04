@@ -509,7 +509,7 @@ impl Sha256Digest {
         Self::from_digest_bytes(Sha256::digest(bytes).into())
     }
 
-    fn from_digest_bytes(bytes: [u8; 32]) -> Self {
+    pub(crate) fn from_digest_bytes(bytes: [u8; 32]) -> Self {
         let mut value = String::with_capacity(64);
         for byte in bytes {
             use fmt::Write as _;
