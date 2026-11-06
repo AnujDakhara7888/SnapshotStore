@@ -65,8 +65,14 @@ pub enum TableError {
         supplied_fingerprint: String,
     },
 
-    #[error("HEAD changed while publishing from version {expected_version}")]
-    Conflict { expected_version: u64 },
+    #[error(
+        "HEAD could not be published after {attempts} attempts from version {expected_version}; latest observed version is {latest_version}"
+    )]
+    Conflict {
+        expected_version: u64,
+        latest_version: u64,
+        attempts: u32,
+    },
 
     #[error("committed version {version} is not reachable from HEAD")]
     VersionNotFound { version: u64 },
