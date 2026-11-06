@@ -74,7 +74,12 @@ encodes it as Zstandard Parquet, and writes it under a unique attempt path. It
 then writes an immutable full manifest containing every active file and the
 parent manifest link. Only a token-matched replacement of `HEAD` makes those
 prepared objects visible. If another writer has already changed `HEAD`, the
-append reports a conflict and its unreachable objects remain harmless orphans.
+append opens the winning snapshot and rechecks the cumulative batch registry.
+A matching replay returns the first receipt; a changed payload under that ID is
+rejected; an uncommitted ID is rebased onto the winner. Data files are prepared
+once and reused while each retry writes a new immutable full manifest. After
+three unsuccessful conditional replacements the call returns a typed conflict.
+Unreachable manifests remain harmless orphans.
 
 A table handle owns the manifest and file list it resolved, so later commits do
 not alter its reads. Historical lookup walks parent links from a committed
@@ -109,8 +114,9 @@ writers sharing one stale token cannot both publish.
 
 ## Current implementation boundary
 
-The storage and metadata contracts, table initialization, single-attempt append
+The storage and metadata contracts, table initialization, bounded append
 publication, pinned and historical snapshots, stable descriptor, and local
-filesystem adapter are implemented. Automatic stale-writer reconciliation,
-bounded rebasing, the S3 adapter, and command-line interface are separate
-layers and are not yet available.
+filesystem adapter are implemented. Concurrent local writers recheck the
+replay registry and rebase without re-encoding data. The S3 adapter, full
+fault-injection matrix, and command-line interface are separate layers and are
+not yet available.

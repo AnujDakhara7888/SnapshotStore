@@ -42,12 +42,11 @@ A separate integration test writes a nullable Arrow `RecordBatch` to a
 Zstandard-compressed Parquet file and reads it back without changing its schema,
 values, nulls, or row order.
 
-Automatically rebased appends and the S3 adapter are under active development.
-The remaining publication behavior is design intent until its implementation
-and tests land:
+The S3 adapter is under active development. Its publication behavior remains
+design intent until implementation and real-backend tests land:
 
 - optimistic compare-and-swap publication for AWS S3;
-- bounded retry after a stale-writer conflict.
+- replay and bounded-rebase behavior equivalent to the local backend.
 
 Caller-supplied batch IDs are replay-safe on a current snapshot. A canonical
 logical fingerprint is independent of Arrow chunking and Parquet layout;
@@ -71,8 +70,10 @@ See the [architecture](docs/architecture.md), [format v1
 contract](docs/format-v1.md), and [conditional-publication decision
 record](docs/decisions/0001-conditional-publication.md). The [snapshot
 descriptor](docs/snapshot-descriptor-v1.md) documents the query-integration
-boundary. Local `fsync`, locking, and platform assumptions are detailed in the
-[local durability contract](docs/local-durability.md).
+boundary. The [bounded-rebase decision](docs/decisions/0003-bounded-rebase.md)
+defines concurrent-writer behavior. Local `fsync`, locking, and platform
+assumptions are detailed in the [local durability
+contract](docs/local-durability.md).
 
 ## Build and test
 
@@ -104,9 +105,9 @@ distributed consensus, and a network service are outside the initial scope.
 The current code defines and tests table initialization, single-attempt append
 publication, pinned and historical reads, storage and metadata contracts, a
 stable snapshot descriptor, and a local durable backend. It does not yet
-provide automatic stale-writer reconciliation, bounded conflict rebasing, a
-command-line interface, or validated S3 behavior. Initialization has
-deterministic concurrent-creator and response-loss coverage. Append tests show
-a stale writer cannot replace a committed update, but do not yet cover the
-complete retry and fault matrix or physical power-loss behavior. Further claims
-will be added only with executable evidence.
+provide a command-line interface or validated S3 behavior. Initialization has
+deterministic concurrent-creator and response-loss coverage. Append publication
+rechecks the committed registry and rebases for at most three attempts; tests
+show two writers preserve both committed batches. The complete publication
+fault matrix and physical power-loss behavior are not yet covered. Further
+claims will be added only with executable evidence.

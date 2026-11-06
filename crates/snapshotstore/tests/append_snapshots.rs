@@ -204,7 +204,7 @@ async fn empty_and_wrong_schema_batches_do_not_advance_head() {
 }
 
 #[tokio::test]
-async fn stale_writer_cannot_publish_over_a_committed_append() {
+async fn stale_writer_rebases_without_losing_committed_data() {
     let directory = tempdir().expect("temporary directory");
     let storage = Arc::new(LocalStorage::open(directory.path()).expect("open local storage"));
     create_table(Arc::clone(&storage), table_schema())
@@ -217,23 +217,23 @@ async fn stale_writer_cannot_publish_over_a_committed_append() {
         .await
         .expect("open right writer");
 
-    append_batch(&left, batch_id("winner"), &batch_a())
+    let winner = append_batch(&left, batch_id("winner"), &batch_a())
         .await
         .expect("first writer publishes");
-    assert!(matches!(
-        append_batch(&right, batch_id("loser"), &batch_b()).await,
-        Err(TableError::Conflict {
-            expected_version: 0
-        })
-    ));
+    let rebased = append_batch(&right, batch_id("rebased"), &batch_b())
+        .await
+        .expect("stale writer rebases");
+    assert_eq!(winner.table.version(), 1);
+    assert_eq!(rebased.table.version(), 2);
 
     let visible = open_table(storage).await.expect("open committed state");
-    assert_eq!(visible.version(), 1);
+    assert_eq!(visible.version(), 2);
     assert_eq!(
         visible.read_batches().await.expect("read committed rows"),
-        vec![batch_a()]
+        vec![batch_a(), batch_b()]
     );
-    assert_eq!(visible.manifest().files.len(), 1);
+    assert_eq!(visible.manifest().files.len(), 2);
+    assert_eq!(visible.manifest().committed_batches.len(), 2);
 }
 
 #[tokio::test]
