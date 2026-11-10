@@ -41,6 +41,16 @@ This model is intentionally narrower than the production format. It is an
 oracle for append visibility and replay behavior, not another implementation
 of metadata publication.
 
+## Named recovery matrix
+
+Scenarios S01-S20 cover creator and writer races, pinned readers, replay and ID
+reuse, interruption at each append publication boundary, stale writers, retry
+exhaustion, and transient storage failures. The [scenario report](recovery-scenarios.md)
+records each required observation and the command that runs the matrix. A
+machine-readable result can be generated with
+`./scripts/test-snapshot-scenarios --report <path>`; it records the current
+source SHA only after all twenty tests pass.
+
 ## Limits
 
 The deterministic wrapper validates protocol behavior for applied and
