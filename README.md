@@ -73,7 +73,9 @@ descriptor](docs/snapshot-descriptor-v1.md) documents the query-integration
 boundary. The [bounded-rebase decision](docs/decisions/0003-bounded-rebase.md)
 defines concurrent-writer behavior. Local `fsync`, locking, and platform
 assumptions are detailed in the [local durability
-contract](docs/local-durability.md).
+contract](docs/local-durability.md). The [correctness testing
+guide](docs/testing.md) describes deterministic publication faults and the
+independent append model.
 
 ## Build and test
 
@@ -102,12 +104,14 @@ SnapshotStore is deliberately append-only. Row updates and deletes, schema
 evolution, cross-table transactions, compaction, vacuum, replication,
 distributed consensus, and a network service are outside the initial scope.
 
-The current code defines and tests table initialization, single-attempt append
+The current code defines and tests table initialization, bounded append
 publication, pinned and historical reads, storage and metadata contracts, a
 stable snapshot descriptor, and a local durable backend. It does not yet
 provide a command-line interface or validated S3 behavior. Initialization has
 deterministic concurrent-creator and response-loss coverage. Append publication
 rechecks the committed registry and rebases for at most three attempts; tests
-show two writers preserve both committed batches. The complete publication
-fault matrix and physical power-loss behavior are not yet covered. Further
-claims will be added only with executable evidence.
+show two writers preserve both committed batches. Deterministic tests inject
+unapplied failures and applied-but-response-lost outcomes before and after each
+append write, then compare durable state with an independent append-only model.
+The complete recovery scenario matrix and physical power-loss behavior are not
+yet covered. Further claims will be added only with executable evidence.

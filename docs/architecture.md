@@ -104,6 +104,16 @@ Receipts retain the table ID, batch ID, logical fingerprint, first successful
 commit ID and version, added row count, and whether the current call was a
 replay. The first receipt remains authoritative even after later commits.
 
+## Recovery validation
+
+Deterministic integration tests intercept data upload, manifest upload, and
+conditional `HEAD` replacement. They simulate failures before application and
+lost responses after application. Each observed durable state is compared with
+a small append-only reference model built from the test inputs rather than the
+table metadata. The comparison covers exact row order, versions, history,
+files, row totals, and unique committed batch IDs. The full boundary behavior
+and its limitations are documented in the [testing guide](testing.md).
+
 ## Local backend
 
 The local adapter uses an advisory interprocess lock, same-directory staging,
@@ -117,6 +127,7 @@ writers sharing one stale token cannot both publish.
 The storage and metadata contracts, table initialization, bounded append
 publication, pinned and historical snapshots, stable descriptor, and local
 filesystem adapter are implemented. Concurrent local writers recheck the
-replay registry and rebase without re-encoding data. The S3 adapter, full
-fault-injection matrix, and command-line interface are separate layers and are
-not yet available.
+replay registry and rebase without re-encoding data. The recovery harness
+injects applied and unapplied outcomes at every append write boundary. The S3
+adapter, complete recovery scenario matrix, and command-line interface are
+separate layers and are not yet available.
