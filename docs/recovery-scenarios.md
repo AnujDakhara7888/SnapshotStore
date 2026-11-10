@@ -38,3 +38,5 @@ Run the matrix and optionally write a machine-readable result:
 The report records the tested source SHA and local result counts. These tests
 exercise deterministic process-level failure points and real local storage
 operations. They do not prove physical power-loss behavior or AWS S3 behavior.
+The checked-in [latest S01-S20 result](../artifacts/snapshot-scenarios-s01-s20.json)
+is tied to the source commit tested by the report command.
