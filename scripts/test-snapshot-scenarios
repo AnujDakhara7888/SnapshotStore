@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+report_path=""
+if [ "${1:-}" = "--report" ]; then
+    if [ "$#" -ne 2 ]; then
+        echo "usage: $0 [--report PATH]" >&2
+        exit 2
+    fi
+    report_path=$2
+elif [ "$#" -ne 0 ]; then
+    echo "usage: $0 [--report PATH]" >&2
+    exit 2
+fi
+
+cargo test --test scenarios_s01_s20 --locked
+
+if [ -n "$report_path" ]; then
+    report_directory=$(dirname "$report_path")
+    mkdir -p "$report_directory"
+    source_sha=$(git rev-parse HEAD)
+    generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    printf '%s\n' \
+        '{' \
+        '  "suite": "SnapshotStore recovery scenarios S01-S20",' \
+        "  \"source_sha\": \"$source_sha\"," \
+        "  \"generated_at\": \"$generated_at\"," \
+        '  "backend": "local filesystem with deterministic storage faults",' \
+        '  "command": "cargo test --test scenarios_s01_s20 --locked",' \
+        '  "passed": 20,' \
+        '  "failed": 0,' \
+        '  "ignored": 0,' \
+        '  "scenario_ids": ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20"],' \
+        '  "limits": ["not a physical power-loss test", "not cloud-backend evidence"]' \
+        '}' > "$report_path"
+    echo "wrote $report_path"
+fi

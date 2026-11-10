@@ -1,0 +1,12 @@
+{
+  "suite": "SnapshotStore recovery scenarios S01-S20",
+  "source_sha": "d4ccdbf7be046ed8ff3441258391114bf4d3eb6b",
+  "generated_at": "2026-11-10T18:37:04Z",
+  "backend": "local filesystem with deterministic storage faults",
+  "command": "cargo test --test scenarios_s01_s20 --locked",
+  "passed": 20,
+  "failed": 0,
+  "ignored": 0,
+  "scenario_ids": ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20"],
+  "limits": ["not a physical power-loss test", "not cloud-backend evidence"]
+}

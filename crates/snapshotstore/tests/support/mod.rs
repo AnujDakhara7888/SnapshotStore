@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -84,6 +86,7 @@ pub struct FaultStorage {
     plan: Mutex<Option<FaultPlan>>,
     triggered: AtomicUsize,
     head_replacements: AtomicUsize,
+    fail_next_read: AtomicBool,
     fail_next_head_read: AtomicBool,
 }
 
@@ -94,6 +97,7 @@ impl FaultStorage {
             plan: Mutex::new(None),
             triggered: AtomicUsize::new(0),
             head_replacements: AtomicUsize::new(0),
+            fail_next_read: AtomicBool::new(false),
             fail_next_head_read: AtomicBool::new(false),
         }
     }
@@ -114,6 +118,10 @@ impl FaultStorage {
 
     pub fn head_replacements(&self) -> usize {
         self.head_replacements.load(Ordering::SeqCst)
+    }
+
+    pub fn fail_next_read(&self) {
+        self.fail_next_read.store(true, Ordering::SeqCst);
     }
 
     fn take_plan(&self, boundary: WriteBoundary) -> Option<FaultPlan> {
@@ -158,6 +166,12 @@ impl FaultStorage {
 #[async_trait]
 impl Storage for FaultStorage {
     async fn get_with_token(&self, key: &ObjectKey) -> Result<StoredObject, StorageError> {
+        if self.fail_next_read.swap(false, Ordering::SeqCst) {
+            return Err(StorageError::Unavailable {
+                operation: StorageOperation::GetWithToken,
+                message: format!("injected transient read failure for {key}"),
+            });
+        }
         if key.as_str() == "HEAD" && self.fail_next_head_read.swap(false, Ordering::SeqCst) {
             return Err(StorageError::Unavailable {
                 operation: StorageOperation::GetWithToken,
