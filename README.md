@@ -75,7 +75,7 @@ defines concurrent-writer behavior. Local `fsync`, locking, and platform
 assumptions are detailed in the [local durability
 contract](docs/local-durability.md). The [correctness testing
 guide](docs/testing.md) describes deterministic publication faults and the
-independent append model. The [S01-S20 recovery report](docs/recovery-scenarios.md)
+independent append model. The [S01-S30 recovery report](docs/recovery-scenarios.md)
 maps each named scenario to its executable observation.
 
 ## Build and test

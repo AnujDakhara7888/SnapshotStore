@@ -14,6 +14,7 @@ elif [ "$#" -ne 0 ]; then
 fi
 
 cargo test --test scenarios_s01_s20 --locked
+cargo test --test scenarios_s21_s30 --locked
 
 if [ -n "$report_path" ]; then
     report_directory=$(dirname "$report_path")
@@ -22,16 +23,18 @@ if [ -n "$report_path" ]; then
     generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     printf '%s\n' \
         '{' \
-        '  "suite": "SnapshotStore recovery scenarios S01-S20",' \
+        '  "suite": "SnapshotStore recovery scenarios S01-S30",' \
         "  \"source_sha\": \"$source_sha\"," \
         "  \"generated_at\": \"$generated_at\"," \
         '  "backend": "local filesystem with deterministic storage faults",' \
-        '  "command": "cargo test --test scenarios_s01_s20 --locked",' \
-        '  "passed": 20,' \
+        '  "command": "./scripts/test-snapshot-scenarios",' \
+        '  "passed": 30,' \
         '  "failed": 0,' \
         '  "ignored": 0,' \
-        '  "scenario_ids": ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20"],' \
-        '  "limits": ["not a physical power-loss test", "not cloud-backend evidence"]' \
+        '  "scenario_ids": ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "S22", "S23", "S24", "S25", "S26", "S27", "S28", "S29", "S30"],' \
+        '  "s30_seeds": [7, 19, 41, 73],' \
+        '  "subprocess_evidence": ["writer killed before HEAD", "two append writers race"],' \
+        '  "limits": ["not a physical power-loss test", "not cloud-backend evidence", "S30 extended 100-seed run is separate"]' \
         '}' > "$report_path"
     echo "wrote $report_path"
 fi
