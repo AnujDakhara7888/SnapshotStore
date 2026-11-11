@@ -1,9 +1,10 @@
-# Recovery scenarios S01-S20
+# Recovery scenarios S01-S30
 
-The first twenty named recovery and concurrency scenarios are executable in
-`scenarios_s01_s20.rs`. Every scenario asserts the committed version, active
-file count, complete batch-ID set, exact logical rows and row order, and
-reachable history against the independent append model where applicable.
+All thirty named recovery and concurrency scenarios are executable in
+`scenarios_s01_s20.rs` and `scenarios_s21_s30.rs`. Every scenario asserts the
+committed version, active file count, complete batch-ID set, exact logical rows
+and row order, and reachable history against the independent append model where
+applicable.
 
 | ID | Scenario | Executable observation |
 |---|---|---|
@@ -27,16 +28,30 @@ reachable history against the independent append model where applicable.
 | S18 | Several consecutive lost races | Three rejected publications return typed `Conflict` without changing the winner. |
 | S19 | Transient storage read failure | Opening returns typed storage unavailability, never an empty table. |
 | S20 | Transient storage write failure | Append returns typed storage unavailability and never reports success. |
+| S21 | Required committed data missing | Reading returns `MissingCommittedFile` for the exact missing key. |
+| S22 | Committed manifest corrupt | Opening returns `CorruptMetadata` for the committed manifest. |
+| S23 | Incoming schema mismatch | The append is rejected before publication and version 0 remains current. |
+| S24 | Empty incoming batch | The append returns `EmptyBatch` without advancing `HEAD`. |
+| S25 | One batch spans several files | Two files publish in one version, while a pre-`HEAD` failure exposes neither. |
+| S26 | Read old version after several appends | Versions 1 and 2 retain their exact historical rows after version 3 commits. |
+| S27 | Restart with orphan objects | Restart follows committed `HEAD` and ignores prepared data and manifest orphans. |
+| S28 | Several pinned readers plus writer | Version-0 and version-1 readers retain complete pinned views after version 2. |
+| S29 | Separate local processes race | A killed pre-`HEAD` writer stays invisible; two released writers commit versions 1 and 2 without loss. |
+| S30 | Seeded mixed history | Four recorded seeds compare recovered state with the reference model after every operation. |
 
 Run the matrix and optionally write a machine-readable result:
 
 ```sh
 ./scripts/test-snapshot-scenarios
-./scripts/test-snapshot-scenarios --report artifacts/snapshot-scenarios-s01-s20.json
+./scripts/test-snapshot-scenarios --report artifacts/snapshot-scenarios-s01-s30.json
 ```
 
-The report records the tested source SHA and local result counts. These tests
-exercise deterministic process-level failure points and real local storage
-operations. They do not prove physical power-loss behavior or AWS S3 behavior.
-The checked-in [latest S01-S20 result](../artifacts/snapshot-scenarios-s01-s20.json)
-is tied to the source commit tested by the report command.
+The report records the tested source SHA, local result counts, S30 seeds, and
+subprocess evidence. These tests exercise deterministic process-level failure
+points, a real killed writer, and real local storage operations. They do not
+prove physical power-loss behavior or AWS S3 behavior. The extended S30 run of
+at least 100 seeds is a separate release gate. The earlier
+[S01-S20 result](../artifacts/snapshot-scenarios-s01-s20.json) remains as
+historical evidence tied to its original source commit.
+The checked-in [S01-S30 result](../artifacts/snapshot-scenarios-s01-s30.json)
+is tied to the complete matrix source commit tested by the report command.

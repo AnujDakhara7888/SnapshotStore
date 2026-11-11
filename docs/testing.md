@@ -43,13 +43,14 @@ of metadata publication.
 
 ## Named recovery matrix
 
-Scenarios S01-S20 cover creator and writer races, pinned readers, replay and ID
-reuse, interruption at each append publication boundary, stale writers, retry
-exhaustion, and transient storage failures. The [scenario report](recovery-scenarios.md)
-records each required observation and the command that runs the matrix. A
-machine-readable result can be generated with
-`./scripts/test-snapshot-scenarios --report <path>`; it records the current
-source SHA only after all twenty tests pass.
+Scenarios S01-S30 cover creator and writer races, pinned and historical
+readers, replay and ID reuse, interruption at each append publication boundary,
+stale writers, retry exhaustion, integrity failures, multi-file atomicity,
+restart with orphans, subprocess termination, and seeded mixed histories. The
+[scenario report](recovery-scenarios.md) records each required observation and
+the command that runs the matrix. A machine-readable result can be generated
+with `./scripts/test-snapshot-scenarios --report <path>`; it records the current
+source SHA only after all thirty tests pass.
 
 ## Limits
 

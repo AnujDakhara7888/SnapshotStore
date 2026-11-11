@@ -255,6 +255,7 @@ impl Storage for FaultStorage {
 struct ModelBatch {
     batch_id: String,
     values: Vec<u64>,
+    file_count: usize,
     first_commit_id: Option<Uuid>,
 }
 
@@ -265,6 +266,17 @@ pub struct AppendReferenceModel {
 
 impl AppendReferenceModel {
     pub fn apply_receipt(&mut self, batch_id: &str, values: &[u64], receipt: &AppendReceipt) {
+        self.apply_receipt_with_file_count(batch_id, values, 1, receipt);
+    }
+
+    pub fn apply_receipt_with_file_count(
+        &mut self,
+        batch_id: &str,
+        values: &[u64],
+        file_count: usize,
+        receipt: &AppendReceipt,
+    ) {
+        assert!(file_count > 0, "a committed batch has at least one file");
         assert_eq!(receipt.batch_id.as_str(), batch_id);
         assert_eq!(receipt.added_rows, values.len() as u64);
         let committed_version = self
@@ -278,6 +290,7 @@ impl AppendReferenceModel {
                 .expect("observed model version remains present");
             assert!(receipt.replayed, "an existing model batch must be a replay");
             assert_eq!(committed.values, values);
+            assert_eq!(committed.file_count, file_count);
             assert_eq!(receipt.first_version, committed_version);
             if let Some(first_commit_id) = committed.first_commit_id {
                 assert_eq!(receipt.first_commit_id, first_commit_id);
@@ -296,6 +309,7 @@ impl AppendReferenceModel {
                     ModelBatch {
                         batch_id: batch_id.to_owned(),
                         values: values.to_vec(),
+                        file_count,
                         first_commit_id: Some(receipt.first_commit_id),
                     },
                 )
@@ -317,6 +331,7 @@ impl AppendReferenceModel {
             ModelBatch {
                 batch_id: batch_id.to_owned(),
                 values: values.to_vec(),
+                file_count: 1,
                 first_commit_id: None,
             },
         );
@@ -325,7 +340,13 @@ impl AppendReferenceModel {
     pub async fn assert_matches<S: Storage + ?Sized>(&self, storage: Arc<S>) {
         let table = open_table(storage).await.expect("open committed table");
         assert_eq!(table.version(), self.batches.len() as u64);
-        assert_eq!(table.manifest().files.len(), self.batches.len());
+        assert_eq!(
+            table.manifest().files.len(),
+            self.batches
+                .values()
+                .map(|batch| batch.file_count)
+                .sum::<usize>()
+        );
         assert_eq!(table.manifest().committed_batches.len(), self.batches.len());
         assert_eq!(
             self.batches.keys().copied().collect::<Vec<_>>(),
