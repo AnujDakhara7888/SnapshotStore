@@ -1,0 +1,14 @@
+{
+  "suite": "SnapshotStore recovery scenarios S01-S30",
+  "source_sha": "4a12cf10ccb557270d22a87e75c53117f5a754d4",
+  "generated_at": "2026-11-11T15:07:32Z",
+  "backend": "local filesystem with deterministic storage faults",
+  "command": "./scripts/test-snapshot-scenarios",
+  "passed": 30,
+  "failed": 0,
+  "ignored": 0,
+  "scenario_ids": ["S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S09", "S10", "S11", "S12", "S13", "S14", "S15", "S16", "S17", "S18", "S19", "S20", "S21", "S22", "S23", "S24", "S25", "S26", "S27", "S28", "S29", "S30"],
+  "s30_seeds": [7, 19, 41, 73],
+  "subprocess_evidence": ["writer killed before HEAD", "two append writers race"],
+  "limits": ["not a physical power-loss test", "not cloud-backend evidence", "S30 extended 100-seed run is separate"]
+}

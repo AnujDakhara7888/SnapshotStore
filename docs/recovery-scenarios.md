@@ -53,3 +53,5 @@ prove physical power-loss behavior or AWS S3 behavior. The extended S30 run of
 at least 100 seeds is a separate release gate. The earlier
 [S01-S20 result](../artifacts/snapshot-scenarios-s01-s20.json) remains as
 historical evidence tied to its original source commit.
+The checked-in [S01-S30 result](../artifacts/snapshot-scenarios-s01-s30.json)
+is tied to the complete matrix source commit tested by the report command.
