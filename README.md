@@ -88,6 +88,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 ./scripts/test-snapshot-scenarios
+./scripts/test-snapshot-s30-seeds
 ```
 
 CI runs the same checks on pushes and pull requests. The toolchain's minimum
@@ -115,5 +116,8 @@ rechecks the committed registry and rebases for at most three attempts; tests
 show two writers preserve both committed batches. Deterministic tests inject
 unapplied failures and applied-but-response-lost outcomes before and after each
 append write, then compare durable state with an independent append-only model.
-The complete recovery scenario matrix and physical power-loss behavior are not
-yet covered. Further claims will be added only with executable evidence.
+The complete S01-S30 recovery matrix includes a killed writer, a two-process
+publication race, and 100 additional deterministic S30 histories with a model
+check after every operation. These results do not establish physical power-loss
+or cloud-backend behavior. Further claims will be added only with executable
+evidence.

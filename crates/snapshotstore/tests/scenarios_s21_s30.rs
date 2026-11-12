@@ -19,11 +19,11 @@ use snapshotstore::metadata::{BatchId, CanonicalSchemaV1, DataTypeV1, SchemaFiel
 use snapshotstore::storage::local::LocalStorage;
 use snapshotstore::storage::{ObjectKey, Storage, StorageError, StoredObject, VersionToken};
 use snapshotstore::table::{
-    AppendReceipt, append_batch, append_batches, create_table, open_table, open_table_at_version,
+    append_batch, append_batches, create_table, open_table, open_table_at_version,
 };
 use tempfile::tempdir;
 
-use support::{AppendReferenceModel, FaultPlan, FaultStorage, WriteBoundary};
+use support::{AppendReferenceModel, FaultPlan, FaultStorage, WriteBoundary, run_seeded_history};
 
 const PROCESS_WORKER: &str = "SNAPSHOTSTORE_SCENARIO_WORKER";
 
@@ -532,116 +532,9 @@ async fn s29_separate_processes_race_and_killed_writer_stays_invisible() {
     model.assert_matches(storage).await;
 }
 
-#[derive(Debug)]
-struct Lcg(u64);
-
-impl Lcg {
-    fn next(&mut self) -> u64 {
-        self.0 = self
-            .0
-            .wrapping_mul(6_364_136_223_846_793_005)
-            .wrapping_add(1_442_695_040_888_963_407);
-        self.0
-    }
-}
-
 #[tokio::test]
 async fn s30_seeded_mixed_append_retry_crash_history() {
     for seed in [7_u64, 19, 41, 73] {
-        let directory = tempdir().expect("temporary directory");
-        let storage = Arc::new(FaultStorage::open(directory.path()));
-        create_table(Arc::clone(&storage), schema())
-            .await
-            .expect("create seeded table");
-        let mut model = AppendReferenceModel::default();
-        let mut committed: Vec<(String, Vec<u64>, AppendReceipt)> = Vec::new();
-        let mut rng = Lcg(seed);
-
-        for step in 0..20_u64 {
-            let mut action = rng.next() % 7;
-            if committed.is_empty() && matches!(action, 1 | 2) {
-                action = 0;
-            }
-            let table = open_table(Arc::clone(&storage))
-                .await
-                .expect("open seeded step");
-            match action {
-                0 => {
-                    let id = format!("seed-{seed}-step-{step}");
-                    let values = vec![seed, step, rng.next()];
-                    let result = append_batch(&table, batch_id(&id), &batch(&values))
-                        .await
-                        .expect("seeded append succeeds");
-                    model.apply_receipt(&id, &values, &result.receipt);
-                    committed.push((id, values, result.receipt));
-                }
-                1 => {
-                    let index = (rng.next() as usize) % committed.len();
-                    let (id, values, _) = &committed[index];
-                    let result = append_batch(&table, batch_id(id), &batch(values))
-                        .await
-                        .expect("seeded replay succeeds");
-                    assert!(result.receipt.replayed);
-                    model.apply_receipt(id, values, &result.receipt);
-                }
-                2 => {
-                    let index = (rng.next() as usize) % committed.len();
-                    let (id, values, _) = &committed[index];
-                    let changed = [values[0].wrapping_add(1), values[1]];
-                    assert!(matches!(
-                        append_batch(&table, batch_id(id), &batch(&changed)).await,
-                        Err(TableError::BatchIdReuse { .. })
-                    ));
-                }
-                3 => {
-                    storage.arm(FaultPlan::unavailable_before(WriteBoundary::Data));
-                    let id = format!("failed-data-{seed}-{step}");
-                    assert!(matches!(
-                        append_batch(&table, batch_id(&id), &batch(&[step])).await,
-                        Err(TableError::StorageUnavailable { .. })
-                    ));
-                }
-                4 => {
-                    storage.arm(FaultPlan::unavailable_before(WriteBoundary::Head));
-                    let id = format!("failed-head-{seed}-{step}");
-                    assert!(matches!(
-                        append_batch(&table, batch_id(&id), &batch(&[step])).await,
-                        Err(TableError::StorageUnavailable { .. })
-                    ));
-                }
-                5 => {
-                    storage.arm(FaultPlan::unknown_after(WriteBoundary::Head));
-                    let id = format!("lost-response-{seed}-{step}");
-                    let values = vec![seed, step];
-                    let result = append_batch(&table, batch_id(&id), &batch(&values))
-                        .await
-                        .expect("applied unknown HEAD reconciles");
-                    model.apply_receipt(&id, &values, &result.receipt);
-                    committed.push((id, values, result.receipt));
-                }
-                6 => {
-                    storage.arm(FaultPlan::unknown_after_head_with_failed_reconciliation());
-                    let id = format!("unknown-commit-{seed}-{step}");
-                    let values = vec![seed, step, 6];
-                    assert!(matches!(
-                        append_batch(&table, batch_id(&id), &batch(&values)).await,
-                        Err(TableError::UnknownCommitStatus { .. })
-                    ));
-                    model.apply_known_commit_without_receipt(&id, &values);
-                    model.assert_matches(Arc::clone(&storage)).await;
-                    let reopened = open_table(Arc::clone(&storage))
-                        .await
-                        .expect("reopen unknown commit");
-                    let replay = append_batch(&reopened, batch_id(&id), &batch(&values))
-                        .await
-                        .expect("replay discovers unknown commit");
-                    assert!(replay.receipt.replayed);
-                    model.apply_receipt(&id, &values, &replay.receipt);
-                    committed.push((id, values, replay.receipt));
-                }
-                _ => unreachable!("action is modulo seven"),
-            }
-            model.assert_matches(Arc::clone(&storage)).await;
-        }
+        run_seeded_history(seed, 20).await;
     }
 }

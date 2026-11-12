@@ -52,6 +52,20 @@ the command that runs the matrix. A machine-readable result can be generated
 with `./scripts/test-snapshot-scenarios --report <path>`; it records the current
 source SHA only after all thirty tests pass.
 
+S30 also has an extended deterministic run over seeds 0 through 99. Each seed
+performs 20 mixed append, replay, ID-reuse, definite-failure, lost-response,
+and unknown-commit operations. Durable state is checked against the independent
+model after every operation. Run the complete gate or reproduce one seed with:
+
+```sh
+./scripts/test-snapshot-s30-seeds
+./scripts/test-snapshot-s30-seeds --seed 42
+```
+
+The extended runner stops on the first failure and prints its seed. Passing
+`--report <path>` writes the tested source SHA, exact seed range, and operation
+count only after the selected range completes successfully.
+
 ## Limits
 
 The deterministic wrapper validates protocol behavior for applied and

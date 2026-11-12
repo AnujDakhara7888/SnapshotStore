@@ -1,0 +1,81 @@
+#!/bin/sh
+set -eu
+
+start=0
+count=100
+report_path=""
+
+usage() {
+    echo "usage: $0 [--seed N | --start N --count N] [--report PATH]" >&2
+    exit 2
+}
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --seed)
+            [ "$#" -ge 2 ] || usage
+            start=$2
+            count=1
+            shift 2
+            ;;
+        --start)
+            [ "$#" -ge 2 ] || usage
+            start=$2
+            shift 2
+            ;;
+        --count)
+            [ "$#" -ge 2 ] || usage
+            count=$2
+            shift 2
+            ;;
+        --report)
+            [ "$#" -ge 2 ] || usage
+            report_path=$2
+            shift 2
+            ;;
+        *)
+            usage
+            ;;
+    esac
+done
+
+case "$start" in
+    ''|*[!0-9]*) usage ;;
+esac
+case "$count" in
+    ''|*[!0-9]*) usage ;;
+esac
+[ "$count" -gt 0 ] || usage
+
+end=$((start + count))
+seed=$start
+while [ "$seed" -lt "$end" ]; do
+    echo "S30 seed $seed"
+    SNAPSHOTSTORE_S30_SEED=$seed \
+        cargo test --test s30_seeded_extended --locked --quiet -- \
+        --exact s30_reproducible_seed
+    seed=$((seed + 1))
+done
+
+if [ -n "$report_path" ]; then
+    report_directory=$(dirname "$report_path")
+    mkdir -p "$report_directory"
+    source_sha=$(git rev-parse HEAD)
+    generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    end_inclusive=$((end - 1))
+    operations=$((count * 20))
+    printf '%s\n' \
+        '{' \
+        '  "suite": "SnapshotStore S30 extended seeded recovery matrix",' \
+        "  \"source_sha\": \"$source_sha\"," \
+        "  \"generated_at\": \"$generated_at\"," \
+        '  "backend": "local filesystem with deterministic storage faults",' \
+        "  \"command\": \"./scripts/test-snapshot-s30-seeds --start $start --count $count\"," \
+        "  \"seed_range\": {\"start\": $start, \"end_inclusive\": $end_inclusive, \"count\": $count}," \
+        '  "operations_per_seed": 20,' \
+        "  \"model_checks_after_operations\": $operations," \
+        '  "failed_seeds": 0,' \
+        '  "limits": ["not a physical power-loss test", "not cloud-backend evidence"]' \
+        '}' > "$report_path"
+    echo "wrote $report_path"
+fi

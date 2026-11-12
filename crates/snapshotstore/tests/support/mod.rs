@@ -4,15 +4,19 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use arrow::array::UInt64Array;
+use arrow::array::{ArrayRef, UInt64Array};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use async_trait::async_trait;
 use bytes::Bytes;
-use snapshotstore::metadata::BatchId;
+use snapshotstore::errors::TableError;
+use snapshotstore::metadata::{BatchId, CanonicalSchemaV1, DataTypeV1, SchemaFieldV1};
 use snapshotstore::storage::local::LocalStorage;
 use snapshotstore::storage::{
     ObjectKey, Storage, StorageError, StorageOperation, StoredObject, VersionToken,
 };
-use snapshotstore::table::{AppendReceipt, open_table};
+use snapshotstore::table::{AppendReceipt, append_batch, create_table, open_table};
+use tempfile::tempdir;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,5 +412,143 @@ impl AppendReferenceModel {
                 .collect::<Vec<_>>(),
             (0..=self.batches.len() as u64).collect::<Vec<_>>()
         );
+    }
+}
+
+#[derive(Debug)]
+struct SeededGenerator(u64);
+
+impl SeededGenerator {
+    fn next(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+}
+
+fn seeded_schema() -> CanonicalSchemaV1 {
+    CanonicalSchemaV1 {
+        fields: vec![SchemaFieldV1 {
+            name: "value".to_owned(),
+            data_type: DataTypeV1::UInt64,
+            nullable: false,
+        }],
+    }
+}
+
+fn seeded_batch(values: &[u64]) -> RecordBatch {
+    RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::UInt64,
+            false,
+        )])),
+        vec![Arc::new(UInt64Array::from(values.to_vec())) as ArrayRef],
+    )
+    .expect("seeded fixture matches schema")
+}
+
+fn seeded_batch_id(value: &str) -> BatchId {
+    BatchId::parse(value).expect("seeded batch ID is valid")
+}
+
+pub async fn run_seeded_history(seed: u64, steps: u64) {
+    eprintln!("S30 seed {seed}: {steps} operations");
+    let directory = tempdir().expect("temporary directory");
+    let storage = Arc::new(FaultStorage::open(directory.path()));
+    create_table(Arc::clone(&storage), seeded_schema())
+        .await
+        .expect("create seeded table");
+    let mut model = AppendReferenceModel::default();
+    let mut committed: Vec<(String, Vec<u64>, AppendReceipt)> = Vec::new();
+    let mut generator = SeededGenerator(seed);
+
+    for step in 0..steps {
+        let mut action = generator.next() % 7;
+        if committed.is_empty() && matches!(action, 1 | 2) {
+            action = 0;
+        }
+        let table = open_table(Arc::clone(&storage))
+            .await
+            .expect("open seeded step");
+        match action {
+            0 => {
+                let id = format!("seed-{seed}-step-{step}");
+                let values = vec![seed, step, generator.next()];
+                let result = append_batch(&table, seeded_batch_id(&id), &seeded_batch(&values))
+                    .await
+                    .expect("seeded append succeeds");
+                model.apply_receipt(&id, &values, &result.receipt);
+                committed.push((id, values, result.receipt));
+            }
+            1 => {
+                let index = (generator.next() as usize) % committed.len();
+                let (id, values, _) = &committed[index];
+                let result = append_batch(&table, seeded_batch_id(id), &seeded_batch(values))
+                    .await
+                    .expect("seeded replay succeeds");
+                assert!(result.receipt.replayed);
+                model.apply_receipt(id, values, &result.receipt);
+            }
+            2 => {
+                let index = (generator.next() as usize) % committed.len();
+                let (id, values, _) = &committed[index];
+                let changed = [values[0].wrapping_add(1), values[1]];
+                assert!(matches!(
+                    append_batch(&table, seeded_batch_id(id), &seeded_batch(&changed)).await,
+                    Err(TableError::BatchIdReuse { .. })
+                ));
+            }
+            3 => {
+                storage.arm(FaultPlan::unavailable_before(WriteBoundary::Data));
+                let id = format!("failed-data-{seed}-{step}");
+                assert!(matches!(
+                    append_batch(&table, seeded_batch_id(&id), &seeded_batch(&[step])).await,
+                    Err(TableError::StorageUnavailable { .. })
+                ));
+            }
+            4 => {
+                storage.arm(FaultPlan::unavailable_before(WriteBoundary::Head));
+                let id = format!("failed-head-{seed}-{step}");
+                assert!(matches!(
+                    append_batch(&table, seeded_batch_id(&id), &seeded_batch(&[step])).await,
+                    Err(TableError::StorageUnavailable { .. })
+                ));
+            }
+            5 => {
+                storage.arm(FaultPlan::unknown_after(WriteBoundary::Head));
+                let id = format!("lost-response-{seed}-{step}");
+                let values = vec![seed, step];
+                let result = append_batch(&table, seeded_batch_id(&id), &seeded_batch(&values))
+                    .await
+                    .expect("applied unknown HEAD reconciles");
+                model.apply_receipt(&id, &values, &result.receipt);
+                committed.push((id, values, result.receipt));
+            }
+            6 => {
+                storage.arm(FaultPlan::unknown_after_head_with_failed_reconciliation());
+                let id = format!("unknown-commit-{seed}-{step}");
+                let values = vec![seed, step, 6];
+                assert!(matches!(
+                    append_batch(&table, seeded_batch_id(&id), &seeded_batch(&values)).await,
+                    Err(TableError::UnknownCommitStatus { .. })
+                ));
+                model.apply_known_commit_without_receipt(&id, &values);
+                model.assert_matches(Arc::clone(&storage)).await;
+                let reopened = open_table(Arc::clone(&storage))
+                    .await
+                    .expect("reopen unknown commit");
+                let replay = append_batch(&reopened, seeded_batch_id(&id), &seeded_batch(&values))
+                    .await
+                    .expect("replay discovers unknown commit");
+                assert!(replay.receipt.replayed);
+                model.apply_receipt(&id, &values, &replay.receipt);
+                committed.push((id, values, replay.receipt));
+            }
+            _ => unreachable!("action is modulo seven"),
+        }
+        model.assert_matches(Arc::clone(&storage)).await;
     }
 }

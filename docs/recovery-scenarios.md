@@ -37,7 +37,7 @@ applicable.
 | S27 | Restart with orphan objects | Restart follows committed `HEAD` and ignores prepared data and manifest orphans. |
 | S28 | Several pinned readers plus writer | Version-0 and version-1 readers retain complete pinned views after version 2. |
 | S29 | Separate local processes race | A killed pre-`HEAD` writer stays invisible; two released writers commit versions 1 and 2 without loss. |
-| S30 | Seeded mixed history | Four recorded seeds compare recovered state with the reference model after every operation. |
+| S30 | Seeded mixed history | Four baseline seeds and an extended 100-seed run compare recovered state with the reference model after every operation. |
 
 Run the matrix and optionally write a machine-readable result:
 
@@ -49,9 +49,24 @@ Run the matrix and optionally write a machine-readable result:
 The report records the tested source SHA, local result counts, S30 seeds, and
 subprocess evidence. These tests exercise deterministic process-level failure
 points, a real killed writer, and real local storage operations. They do not
-prove physical power-loss behavior or AWS S3 behavior. The extended S30 run of
-at least 100 seeds is a separate release gate. The earlier
+prove physical power-loss behavior or AWS S3 behavior. The earlier
 [S01-S20 result](../artifacts/snapshot-scenarios-s01-s20.json) remains as
 historical evidence tied to its original source commit.
 The checked-in [S01-S30 result](../artifacts/snapshot-scenarios-s01-s30.json)
 is tied to the complete matrix source commit tested by the report command.
+
+## Extended S30 seed matrix
+
+The extended gate runs 100 recorded seeds (0 through 99), with 20 operations
+and a full model comparison after every operation. It uses the same state
+machine as the four baseline S30 seeds. A regression can be reproduced directly
+from the printed seed:
+
+```sh
+./scripts/test-snapshot-s30-seeds
+./scripts/test-snapshot-s30-seeds --seed 42
+```
+
+The checked-in [extended S30 result](../artifacts/snapshot-s30-seeds.json)
+records the exact range, operation count, and tested source SHA. This is
+deterministic local-backend evidence, not a physical power-loss or S3 test.
