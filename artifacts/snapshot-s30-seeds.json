@@ -1,0 +1,12 @@
+{
+  "suite": "SnapshotStore S30 extended seeded recovery matrix",
+  "source_sha": "69a3c3d971d2dd6f7ec01844ff73db29b42d60bd",
+  "generated_at": "2026-11-12T19:27:17Z",
+  "backend": "local filesystem with deterministic storage faults",
+  "command": "./scripts/test-snapshot-s30-seeds --start 0 --count 100",
+  "seed_range": {"start": 0, "end_inclusive": 99, "count": 100},
+  "operations_per_seed": 20,
+  "model_checks_after_operations": 2000,
+  "failed_seeds": 0,
+  "limits": ["not a physical power-loss test", "not cloud-backend evidence"]
+}
