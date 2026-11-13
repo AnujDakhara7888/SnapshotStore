@@ -14,3 +14,4 @@ pub mod metadata;
 mod parquet_io;
 pub mod storage;
 pub mod table;
+pub mod verify;

@@ -78,6 +78,26 @@ guide](docs/testing.md) describes deterministic publication faults and the
 independent append model. The [S01-S30 recovery report](docs/recovery-scenarios.md)
 maps each named scenario to its executable observation.
 
+## Command-line usage
+
+The local CLI creates tables, ingests Parquet batches with replay-safe IDs,
+lists committed history, inspects current or historical snapshots, and verifies
+reachable data while reporting retained orphan objects:
+
+```sh
+cargo run --locked -p snapshotstore -- create \
+  --table ./demo-table --schema ./events-schema.json
+cargo run --locked -p snapshotstore -- ingest \
+  --table ./demo-table --input ./batch-a.parquet --batch-id batch-a
+cargo run --locked -p snapshotstore -- history --table ./demo-table
+cargo run --locked -p snapshotstore -- inspect --table ./demo-table --version 1
+cargo run --locked -p snapshotstore -- verify --table ./demo-table
+```
+
+Commands return JSON, including the original receipt on a matching replay. See
+the [CLI contract](docs/cli.md) for the schema-file format, output behavior,
+stable exit statuses, integrity checks, and local-backend boundary.
+
 ## Build and test
 
 The repository pins Rust 1.96.0 and exact Arrow/Parquet dependency versions.
@@ -98,6 +118,7 @@ supported Rust version is 1.96.
 
 ```text
 crates/snapshotstore/   Core library and integration tests
+docs/                   Architecture, format, testing, and CLI contracts
 .github/workflows/      Read-only build, lint, and test CI
 ```
 
@@ -109,11 +130,12 @@ distributed consensus, and a network service are outside the initial scope.
 
 The current code defines and tests table initialization, bounded append
 publication, pinned and historical reads, storage and metadata contracts, a
-stable snapshot descriptor, and a local durable backend. It does not yet
-provide a command-line interface or validated S3 behavior. Initialization has
-deterministic concurrent-creator and response-loss coverage. Append publication
-rechecks the committed registry and rebases for at most three attempts; tests
-show two writers preserve both committed batches. Deterministic tests inject
+stable snapshot descriptor, a local durable backend, and a structured local
+command-line interface. It does not yet provide validated S3 behavior.
+Initialization has deterministic concurrent-creator and response-loss coverage.
+Append publication rechecks the committed registry and rebases for at most
+three attempts; tests show two writers preserve both committed batches.
+Deterministic tests inject
 unapplied failures and applied-but-response-lost outcomes before and after each
 append write, then compare durable state with an independent append-only model.
 The complete S01-S30 recovery matrix includes a killed writer, a two-process

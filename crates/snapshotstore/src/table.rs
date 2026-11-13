@@ -209,7 +209,7 @@ impl<S: Storage + ?Sized> Table<S> {
 }
 
 /// Stable identity returned for a first append and every matching replay.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AppendReceipt {
     pub table_id: Uuid,
     pub first_commit_id: Uuid,
