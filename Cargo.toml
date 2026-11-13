@@ -13,6 +13,7 @@ repository = "https://github.com/AnujDakhara7888/SnapshotStore"
 async-trait = "=0.1.92"
 arrow = { version = "=60.1.0", default-features = false }
 bytes = "=1.12.1"
+clap = { version = "=4.5.51", features = ["derive"] }
 fs4 = "=1.1.0"
 parquet = { version = "=60.1.0", default-features = false, features = ["arrow", "zstd"] }
 serde = { version = "=1.0.229", features = ["derive"] }
