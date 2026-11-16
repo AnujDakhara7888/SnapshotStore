@@ -1,4 +1,4 @@
-use snapshotstore::descriptor::SnapshotDescriptorV1;
+use snapshotstore::descriptor::{SnapshotDescriptorV1, descriptor_schema_fingerprint};
 use snapshotstore::errors::MetadataError;
 use snapshotstore::metadata::{Head, ManifestV1, TableMetadata, validate_snapshot};
 
@@ -7,6 +7,8 @@ const HEAD: &str = include_str!("../../../fixtures/format-v1/head.json");
 const MANIFEST_V0: &str = include_str!("../../../fixtures/format-v1/manifest-v0.json");
 const MANIFEST_V1: &str = include_str!("../../../fixtures/format-v1/manifest-v1.json");
 const DESCRIPTOR_V1: &str = include_str!("../../../fixtures/snapshot-descriptor-v1.json");
+const COLUMNSCOPE_DESCRIPTOR_V1: &str =
+    include_str!("../../../fixtures/columnscope-snapshot-descriptor-v1.json");
 
 fn parse_examples() -> (TableMetadata, Head, ManifestV1, ManifestV1) {
     (
@@ -65,12 +67,41 @@ fn descriptor_fixture_matches_the_committed_snapshot() {
 
     let exported = SnapshotDescriptorV1::from_snapshot(&table, &head, &manifest)
         .expect("committed snapshot exports");
+    assert_ne!(
+        exported.schema_fingerprint, table.schema_fingerprint,
+        "the shared descriptor digest is separate from durable format metadata"
+    );
+    assert!(
+        exported
+            .files
+            .iter()
+            .all(|file| file.schema_fingerprint == exported.schema_fingerprint)
+    );
     assert_eq!(exported, fixture);
 
     let encoded = serde_json::to_value(exported).expect("descriptor encodes");
     let expected: serde_json::Value =
         serde_json::from_str(DESCRIPTOR_V1).expect("valid descriptor JSON");
     assert_eq!(encoded, expected);
+}
+
+#[test]
+fn consumer_compatibility_fixture_uses_canonical_json_fingerprint() {
+    let fixture: SnapshotDescriptorV1 = serde_json::from_str(COLUMNSCOPE_DESCRIPTOR_V1)
+        .expect("consumer descriptor fixture decodes");
+    fixture
+        .validate()
+        .expect("consumer descriptor fixture is valid");
+    assert_eq!(
+        serde_json::to_string(&fixture.schema).expect("encode consumer schema"),
+        "{\"fields\":[{\"name\":\"event_id\",\"data_type\":\"int64\",\"nullable\":false},{\"name\":\"event_type\",\"data_type\":\"utf8\",\"nullable\":false},{\"name\":\"amount\",\"data_type\":\"float64\",\"nullable\":true},{\"name\":\"active\",\"data_type\":\"boolean\",\"nullable\":true}]}"
+    );
+    assert_eq!(
+        descriptor_schema_fingerprint(&fixture.schema)
+            .expect("fingerprint consumer schema")
+            .as_str(),
+        "686261f42a04c7d5b3305386cfbebcfe4cc2bba09330a247bf7eb5532a353bd3"
+    );
 }
 
 #[test]
