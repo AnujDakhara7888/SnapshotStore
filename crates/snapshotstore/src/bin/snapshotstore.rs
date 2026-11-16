@@ -56,6 +56,13 @@ enum Command {
         #[arg(long)]
         version: Option<u64>,
     },
+    /// Export the raw descriptor for the current or a historical snapshot.
+    Export {
+        #[arg(long)]
+        table: PathBuf,
+        #[arg(long)]
+        version: Option<u64>,
+    },
     /// Validate reachable metadata/data and report local orphan objects.
     Verify {
         #[arg(long)]
@@ -220,6 +227,15 @@ async fn run(cli: Cli) -> Result<(), CliFailure> {
             }
             .map_err(CliFailure::table)?;
             write_json(&SnapshotOutput::from_table(&table))
+        }
+        Command::Export { table, version } => {
+            let storage = local_storage(&table)?;
+            let table = match version {
+                Some(version) => open_table_at_version(storage, version).await,
+                None => open_table(storage).await,
+            }
+            .map_err(CliFailure::table)?;
+            write_json(&table.descriptor())
         }
         Command::Verify { table } => {
             let storage = local_storage(&table)?;

@@ -128,6 +128,7 @@ The storage and metadata contracts, table initialization, bounded append
 publication, pinned and historical snapshots, stable descriptor, and local
 filesystem adapter are implemented. Concurrent local writers recheck the
 replay registry and rebase without re-encoding data. The recovery harness
-injects applied and unapplied outcomes at every append write boundary. The S3
-adapter, complete recovery scenario matrix, and command-line interface are
-separate layers and are not yet available.
+injects applied and unapplied outcomes at every append write boundary. The
+complete recovery matrix, local command-line interface, raw descriptor export,
+and ColumnScope descriptor-consumer smoke path are implemented. The S3 adapter
+and real AWS validation remain unavailable.

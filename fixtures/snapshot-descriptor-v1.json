@@ -22,7 +22,7 @@
       }
     ]
   },
-  "schema_fingerprint": "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699",
+  "schema_fingerprint": "d9387e226e9966c5be99488d3348fc7ec056285caa9afa803111957b3cb25651",
   "files": [
     {
       "object_key": "data/55555555-5555-4555-8555-555555555555/66666666-6666-4666-8666-666666666666.parquet",
@@ -32,7 +32,7 @@
         "algorithm": "sha256",
         "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       },
-      "schema_fingerprint": "54022674841992c6b85b7980f182918a146bff50eb43c0581e2cc2776ef94699"
+      "schema_fingerprint": "d9387e226e9966c5be99488d3348fc7ec056285caa9afa803111957b3cb25651"
     }
   ]
 }

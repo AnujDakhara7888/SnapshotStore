@@ -32,13 +32,14 @@ impl SnapshotDescriptorV1 {
         manifest: &ManifestV1,
     ) -> Result<Self, MetadataError> {
         validate_snapshot(table, head, manifest)?;
+        let schema_fingerprint = descriptor_schema_fingerprint(&table.schema)?;
         Ok(Self {
             format_version: table.format_version,
             table_id: table.table_id,
             version: manifest.version,
             commit_id: manifest.commit_id,
             schema: table.schema.clone(),
-            schema_fingerprint: table.schema_fingerprint.clone(),
+            schema_fingerprint: schema_fingerprint.clone(),
             files: manifest
                 .files
                 .iter()
@@ -47,7 +48,7 @@ impl SnapshotDescriptorV1 {
                     byte_size: file.byte_length,
                     row_count: file.row_count,
                     checksum: file.checksum.clone(),
-                    schema_fingerprint: file.schema_fingerprint.clone(),
+                    schema_fingerprint: schema_fingerprint.clone(),
                 })
                 .collect(),
         })
@@ -62,7 +63,7 @@ impl SnapshotDescriptorV1 {
             ));
         }
         self.schema.validate()?;
-        if self.schema.fingerprint() != self.schema_fingerprint {
+        if descriptor_schema_fingerprint(&self.schema)? != self.schema_fingerprint {
             return Err(MetadataError::SchemaMismatch);
         }
         if self.version == 0 && !self.files.is_empty() {
@@ -92,6 +93,23 @@ impl SnapshotDescriptorV1 {
         }
         Ok(())
     }
+}
+
+/// Computes the shared descriptor fingerprint over compact canonical schema JSON.
+///
+/// This integration digest is deliberately separate from the persistent table
+/// schema digest. The latter remains part of SnapshotStore format v1, while
+/// this digest is the cross-project descriptor contract consumed by query
+/// integrations.
+pub fn descriptor_schema_fingerprint(
+    schema: &CanonicalSchemaV1,
+) -> Result<Sha256Digest, MetadataError> {
+    schema.validate()?;
+    serde_json::to_vec(schema)
+        .map(|bytes| Sha256Digest::compute(&bytes))
+        .map_err(|error| MetadataError::CorruptMetadata {
+            message: format!("descriptor schema encoding failed: {error}"),
+        })
 }
 
 /// One immutable data file listed in a snapshot descriptor.

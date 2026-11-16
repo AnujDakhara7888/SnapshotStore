@@ -127,6 +127,18 @@ fn cli_create_ingest_replay_history_inspect_and_verify() {
     assert_eq!(current["row_count"], 2);
     assert_eq!(current["committed_batches"], 1);
 
+    let exported = success_json(run(&["export", "--table", root_arg, "--version", "1"]));
+    assert_eq!(exported["format_version"], 1);
+    assert_eq!(exported["version"], 1);
+    assert_eq!(
+        exported["files"].as_array().expect("exported files").len(),
+        1
+    );
+    assert!(
+        exported.get("snapshot").is_none(),
+        "export is the raw contract"
+    );
+
     let history = success_json(run(&["history", "--table", root_arg]));
     assert_eq!(
         history["snapshots"]

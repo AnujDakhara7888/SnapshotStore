@@ -64,6 +64,17 @@ Inspection returns the stable snapshot descriptor plus cumulative row and
 committed-batch counts. Historical versions are resolved only through the
 manifest chain reachable from the current `HEAD`.
 
+Export writes the raw shared descriptor without the inspection wrapper:
+
+```sh
+target/release/snapshotstore export --table ./demo-table
+target/release/snapshotstore export --table ./demo-table --version 1
+```
+
+The result can be saved and passed to a query consumer together with the table
+storage root. It contains only normalized relative object keys and never
+contains credentials or an absolute storage path.
+
 ## Verify committed state
 
 ```sh

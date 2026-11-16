@@ -1,0 +1,32 @@
+#!/bin/sh
+set -eu
+
+usage() {
+    echo "usage: $0 --columnscope-root PATH" >&2
+    exit 2
+}
+
+[ "$#" -eq 2 ] || usage
+[ "$1" = "--columnscope-root" ] || usage
+columnscope_root=$(CDPATH= cd -- "$2" && pwd) || {
+    echo "ColumnScope root does not exist: $2" >&2
+    exit 2
+}
+[ -f "$columnscope_root/crates/columnscope/Cargo.toml" ] || {
+    echo "ColumnScope crate not found under $columnscope_root" >&2
+    exit 2
+}
+
+script_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+temporary_root=$(mktemp -d "${TMPDIR:-/tmp}/snapshotstore-columnscope.XXXXXX")
+cleanup() {
+    rm -rf "$temporary_root"
+}
+trap cleanup EXIT HUP INT TERM
+
+cp -R "$repository_root/tools/columnscope-compat" "$temporary_root/smoke"
+ln -s "$columnscope_root" "$temporary_root/columnscope"
+
+cargo run --quiet --offline --manifest-path "$temporary_root/smoke/Cargo.toml" -- \
+    "$repository_root/fixtures/columnscope-snapshot-descriptor-v1.json"

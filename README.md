@@ -91,6 +91,7 @@ cargo run --locked -p snapshotstore -- ingest \
   --table ./demo-table --input ./batch-a.parquet --batch-id batch-a
 cargo run --locked -p snapshotstore -- history --table ./demo-table
 cargo run --locked -p snapshotstore -- inspect --table ./demo-table --version 1
+cargo run --locked -p snapshotstore -- export --table ./demo-table --version 1
 cargo run --locked -p snapshotstore -- verify --table ./demo-table
 ```
 
@@ -109,6 +110,8 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --all-targets --locked
 ./scripts/test-snapshot-scenarios
 ./scripts/test-snapshot-s30-seeds
+# With a local ColumnScope checkout:
+./scripts/test-columnscope-compatibility --columnscope-root ../ColumnScope
 ```
 
 CI runs the same checks on pushes and pull requests. The toolchain's minimum
@@ -132,6 +135,9 @@ The current code defines and tests table initialization, bounded append
 publication, pinned and historical reads, storage and metadata contracts, a
 stable snapshot descriptor, a local durable backend, and a structured local
 command-line interface. It does not yet provide validated S3 behavior.
+The descriptor fixture for the shared scalar subset is accepted by the live
+ColumnScope parser; SnapshotStore's additional `uint64` type is not yet
+supported by that consumer.
 Initialization has deterministic concurrent-creator and response-loss coverage.
 Append publication rechecks the committed registry and rebases for at most
 three attempts; tests show two writers preserve both committed batches.
