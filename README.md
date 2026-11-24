@@ -78,6 +78,21 @@ guide](docs/testing.md) describes deterministic publication faults and the
 independent append model. The [S01-S30 recovery report](docs/recovery-scenarios.md)
 maps each named scenario to its executable observation.
 
+## Local demonstration
+
+Run the end-to-end local demonstration to observe pinned reads, replay-safe
+ingestion, ID-reuse rejection, a forced writer race, restart after an injected
+publication failure, committed history, integrity verification, and retained
+orphan detection:
+
+```sh
+./scripts/run-local-demo
+```
+
+The command prints a machine-readable JSON report after all assertions pass.
+See the [demonstration guide](docs/local-demo.md) for the exact sequence and
+backend limitations.
+
 ## Command-line usage
 
 The local CLI creates tables, ingests Parquet batches with replay-safe IDs,
