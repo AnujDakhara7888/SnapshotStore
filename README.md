@@ -42,8 +42,9 @@ A separate integration test writes a nullable Arrow `RecordBatch` to a
 Zstandard-compressed Parquet file and reads it back without changing its schema,
 values, nulls, or row order.
 
-The S3 adapter is under active development. Its publication behavior remains
-design intent until implementation and real-backend tests land:
+The [AWS S3 conditional-write check](docs/s3-conditional-writes.md) exercises
+the object-level operations a future adapter needs for publication. The
+following table guarantees still need real-backend evidence:
 
 - optimistic compare-and-swap publication for AWS S3;
 - replay and bounded-rebase behavior equivalent to the local backend.
