@@ -27,3 +27,9 @@ jobs:
 
       - name: Test
         run: cargo test --workspace --all-targets --locked
+
+      - name: Lint the S3 check
+        run: cargo clippy --locked -p snapshotstore --features s3-check --example s3_conditional_writes -- -D warnings
+
+      - name: Test the S3 check locally
+        run: cargo test --locked -p snapshotstore --features s3-check --example s3_conditional_writes

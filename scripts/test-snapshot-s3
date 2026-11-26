@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+exec cargo run --quiet --locked --manifest-path "$repository_root/Cargo.toml" \
+    --package snapshotstore --features s3-check --example s3_conditional_writes -- "$@"
